@@ -78,6 +78,10 @@ func (nopTemporal) SignalWorkflow(context.Context, string, string, string, any) 
 	return errors.New("nopTemporal: not called")
 }
 
+func (nopTemporal) SignalWithStartWorkflow(context.Context, string, string, any, client.StartWorkflowOptions, any, ...any) (client.WorkflowRun, error) {
+	return nil, errors.New("nopTemporal: not called")
+}
+
 func TestNewMeterError(t *testing.T) {
 	r, err := New(&fakeDB{}, failingMeterProvider{fail: "outbox_relay_rows_scanned"}, slog.New(slog.DiscardHandler), Options{})
 	if !errors.Is(err, errMeter) || r != nil || !strings.HasPrefix(err.Error(), "relay: ") {

@@ -177,6 +177,10 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 		}
 		s := seen{keys: slices.Sorted(maps.Keys(top)), item: slices.Sorted(maps.Keys(items[0]))}
 		_ = json.Unmarshal(top["total_capped"], &s.capped)
+		// total_state (ADR-006-A2 A2-1) names the total's trust, never the shape.
+		if string(top["total_state"]) != `"capped"` {
+			t.Errorf("%s: total_state = %s, want capped", step.name, top["total_state"])
+		}
 		if !s.capped {
 			t.Errorf("%s: total_capped is not set for 1,002 readable records", step.name)
 		}
@@ -195,7 +199,7 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 		}
 		slices.Sort(s.headers)
 		for _, k := range s.keys {
-			if !slices.Contains([]string{"items", "next_cursor", "total", "total_capped"}, k) {
+			if !slices.Contains([]string{"items", "next_cursor", "total", "total_capped", "total_state"}, k) {
 				t.Errorf("%s: body field %q", step.name, k)
 			}
 		}

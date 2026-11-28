@@ -61,13 +61,24 @@ while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$(
 # (run 46051156428: records/pipeline 299 s, groupsync 175 s) and run
 # 46064898762 was cancelled at the bound with every group ok. groupsync uses
 # only NAVA_TEST_PG_URL; records/pipeline needs the PgBouncer, so it stays.
+# NAVA_IT_SOLO_SHARDS (default 2): each solo package runs as that many
+# go test processes, its top-level tests dealt round-robin over them, each on
+# a cluster of its own and under its own -timeout (TICK-1102). One process of
+# internal/server took 277 s to over 480 s on the same head (run 45024439126,
+# attempts 1 and 2): the runner's swing was larger than the headroom under 8m.
 solo=""
 solo_pgs=""
+solo_shards=${NAVA_IT_SOLO_SHARDS:-2}
+case $solo_shards in '' | 0 | *[!0-9]*) echo "NAVA_IT_SOLO_SHARDS=$solo_shards: a positive number" >&2; exit 2 ;; esac
 if [ "$shards" -gt 0 ]; then
     for p in ${NAVA_IT_SOLO-./internal/server ./internal/groupsync}; do
         solo="$solo $p"
-        solo_pgs="$solo_pgs nava-it-pg-$id-s$i"
-        i=$((i + 1))
+        k=1
+        while [ "$k" -le "$solo_shards" ]; do
+            solo_pgs="$solo_pgs nava-it-pg-$id-s$i"
+            i=$((i + 1))
+            k=$((k + 1))
+        done
     done
 fi
 # Every go test gets a -timeout well below the integration job's
@@ -266,11 +277,28 @@ for c in $shard_pgs; do
 done
 # shellcheck disable=SC2086
 set -- $solo_pgs
+solo_groups=""
 for p in $solo; do
     echo "$pkgs" | grep -qx "$p" || { echo "NAVA_IT_SOLO: $p has no integration tests" >&2; exit 1; }
-    # The group is named after the package's last element: solo-server.
-    NAVA_TEST_PG_URL=$(pg_url "$1") run "solo-${p##*/}" "$p"
-    shift
+    # The groups are named after the package's last element: solo-server-1,
+    # solo-server-2, or solo-server alone with NAVA_IT_SOLO_SHARDS=1.
+    g="solo-${p##*/}"
+    if [ "$solo_shards" -eq 1 ]; then
+        NAVA_TEST_PG_URL=$(pg_url "$1") run "$g" "$p"
+        shift
+        continue
+    fi
+    ptests=$(go test -tags integration -list . "$p" | grep -E '^(Test|Fuzz|Example)')
+    ptotal=$(echo "$ptests" | wc -l | tr -d ' ')
+    echo "$g: $ptotal tests over $solo_shards clusters"
+    solo_groups="$solo_groups $g:$ptotal"
+    k=1
+    while [ "$k" -le "$solo_shards" ]; do
+        sel=$(echo "$ptests" | awk -v n="$solo_shards" -v i="$k" 'NR % n == i % n' | paste -s -d '|' -)
+        NAVA_TEST_PG_URL=$(pg_url "$1") run "$g-$k" -run "^($sel)\$" "$p"
+        shift
+        k=$((k + 1))
+    done
 done
 # shellcheck disable=SC2086
 [ -z "$shared" ] || run shared -p 1 $shared
@@ -304,6 +332,18 @@ fgrun go run ./tools/ci/suiteran -tags integration -in "$logs"/* || status=1
 ran=$(grep -h '"Action":"run"' "$logs"/dbtest-* | grep -vc '"Test":"[^"]*/' || true)
 echo "dbtest: $ran of $total top-level tests ran"
 [ "$ran" -eq "$total" ] || { echo "dbtest: the shards ran $ran tests, want $total" >&2; status=1; }
+# Every sharded solo package's test ran, exactly once over its shards, and
+# each shard's package time, so the headroom under -timeout is in the log.
+for gt in $solo_groups; do
+    g=${gt%:*}
+    ran=$(grep -h '"Action":"run"' "$logs/$g"-* | grep -vc '"Test":"[^"]*/' || true)
+    echo "$g: $ran of ${gt#*:} top-level tests ran"
+    [ "$ran" -eq "${gt#*:}" ] || { echo "$g: the shards ran $ran tests, want ${gt#*:}" >&2; status=1; }
+    for f in "$logs/$g"-*; do
+        el=$(grep -h '"Action":"\(pass\|fail\)"' "$f" | grep -v '"Test":' | sed -n 's/.*"Elapsed":\([0-9.]*\).*/\1/p' | tail -n 1)
+        echo "${f##*/}: package time ${el:-unknown}s of $timeout"
+    done
+done
 [ "$status" -eq 0 ] || echo "integration: failed groups:$failed" >&2
 covmerge || status=1
 exit "$status"

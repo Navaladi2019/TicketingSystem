@@ -187,6 +187,11 @@ func TestParse(t *testing.T) {
 	if err != nil || !slices.Equal(inv.items, []string{"script/run"}) {
 		t.Errorf("script: %q, %v", inv.items, err)
 	}
+	// A reserved item is metadata: Compile refuses it, so it is not surface.
+	inv, err = parse([]byte(`{"major": 1, "reserved": [{"item": "type_definition.extensions/x-nava-searchable", "reason": "r"}]}`))
+	if err != nil || len(inv.items) != 0 {
+		t.Errorf("reserved: %q, %v", inv.items, err)
+	}
 	for _, bad := range []string{`[]`, `{"major": "1"}`, `{"major": 1, "workflow": 3}`, `{"major": 1, "workflow": {"step_fields": {"timer": 3}}}`} {
 		if _, err := parse([]byte(bad)); err == nil {
 			t.Errorf("parse(%s) accepted", bad)

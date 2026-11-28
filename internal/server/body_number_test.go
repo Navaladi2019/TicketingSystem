@@ -37,6 +37,11 @@ func TestBodyCarriesIgnoresRandomIDsOnly(t *testing.T) {
 		{"time", `{"published_at":"2026-11-23T04:16:23.543211Z"}`, false},
 		{"time with an offset", `{"published_at":"2026-11-23T04:16:23.054321+05:30"}`, false},
 		{"another limit", `{"detail":"more than 65536 bytes"}`, false},
+		// TICK-1102's cases, with ids at their real length.
+		{"request id of a 405", `{"status": 405, "instance": "urn:nava:request:a62e543214374ceb0000000000000000"}`, false},
+		{"uuid in a detail", `{"detail": "no such record a62e5432-1437-4ceb-8f00-000000000000"}`, false},
+		{"trace id and a nested request id", `{"trace_id": "00543210000000000000000000000000", "errors": [{"request_id": "54321000000000000000000000000000"}]}`, false},
+		{"request id outside JSON", `404 page not found urn:nava:request:a62e543214374ceb0000000000000000`, false},
 
 		{"limit in the detail, id holds the digits", `{"detail":"more than 54321 bytes","instance":"` + request + `"}`, true},
 		{"limit in the detail, id does not", `{"detail":"more than 54321 bytes","instance":"urn:nava:request:00000000000000000000000000000000"}`, true},
@@ -46,6 +51,9 @@ func TestBodyCarriesIgnoresRandomIDsOnly(t *testing.T) {
 		{"limit after the request id", `{"instance":"` + request + `54321"}`, true},
 		{"limit after a uuid", `{"id":"0b0b0b0b-0000-4000-8000-00000000000154321"}`, true},
 		{"limit after a time", `{"at":"2026-11-23T04:16:23Z54321"}`, true},
+		{"limit in the detail, short request id", `{"status": 422, "detail": "the document is over 54321 bytes", "instance": "urn:nava:request:1"}`, true},
+		{"limit as a nested number", `{"settings": {"max_document_bytes": 54321}}`, true},
+		{"limit in plain text", `limit 54321`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

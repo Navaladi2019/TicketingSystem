@@ -16,9 +16,12 @@
   },
   "type_definition": {
     "keywords": ["$schema", "additionalProperties", "default", "description", "enum", "format", "maxLength", "minLength", "properties", "required", "title", "type", "writeOnly"],
-    "extensions": ["x-nava-secret", "x-nava-unique"],
+    "extensions": ["x-nava-filterable", "x-nava-secret", "x-nava-unique"],
     "fields": ["fixed_columns", "key", "number_prefix", "numbering_mode", "schema", "states", "states.initial", "states.states", "states.transitions", "states.transitions.from", "states.transitions.to"]
   },
   "script": [],
-  "deprecated": []
+  "deprecated": [],
+  "reserved": [
+    { "item": "type_definition.extensions/x-nava-searchable", "reason": "ADR-006 D8: reserved, refused with searchable_not_available" }
+  ]
 }

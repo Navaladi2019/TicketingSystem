@@ -31,6 +31,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/seal"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/estimates"
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
@@ -205,7 +206,7 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	}
 	closeAll := func() { closePG(); pipePool.Close(); pool.Close(); c.Close() }
 
-	acts, err := interpreterActivities(lookup, pool, pipePool, workflows)
+	acts, err := interpreterActivities(lookup, pool, pipePool, workflows, tel.MeterProvider)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, nil, err
@@ -228,6 +229,19 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	}
 
 	sm, err := seal.NewMetrics(tel.MeterProvider)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, nil, err
+	}
+	fm, err := backfill.NewMetrics(tel.MeterProvider)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, nil, err
+	}
+	// The backfill's uncoerced values go to the counter the records
+	// trigger's do (nava_field_index_uncoerced_total, ADR-006 R5, TICK-974):
+	// the interpreter writer's instance, registered once.
+	um, err := uncoercedCounter(acts, tel.MeterProvider)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, nil, err
@@ -256,6 +270,7 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	w := worker.New(c, taskQueue, workerOptions(g, workflows, fatal))
 	(&workerguard.Activities{Pool: pool}).Register(w)
 	registerSealer(w, &seal.Activities{Pool: pool, Metrics: sm, Log: log}, workflows)
+	registerFieldIndex(w, &backfill.Activities{Pool: pool, Metrics: fm, Uncoerced: um, Log: log}, workflows)
 	registerInterpreter(w, acts)
 	return w, mon, refresher, closeAll, nil
 }
@@ -354,6 +369,16 @@ func recovered(fn func() error) (err error) {
 func registerSealer(w worker.Registry, acts *seal.Activities, workflows bool) {
 	if workflows {
 		seal.RegisterWorkflow(w)
+	}
+	acts.Register(w)
+}
+
+// registerFieldIndex registers the field-index coordinator and
+// FieldIndexBackfill (ADR-006 D10, TICK-745) when workflows is set, and
+// their activities always, like registerSealer.
+func registerFieldIndex(w worker.Registry, acts *backfill.Activities, workflows bool) {
+	if workflows {
+		backfill.RegisterWorkflow(w)
 	}
 	acts.Register(w)
 }

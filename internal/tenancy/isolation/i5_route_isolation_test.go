@@ -56,6 +56,12 @@ const (
 // test filter agreement, not the limiter.
 var i5rNoRateLimit = server.WithRateLimit(config.RateLimit{Rate: 1e6, Burst: 1 << 20}) //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
+// i5rLegacyScan lets the route rows filter iso_et_i5r's unflagged fields
+// through the JSONB scan, the compiler these rows and the mutants check
+// (ADR-006 D6 refuses them otherwise with 400 field_not_filterable; that the
+// seed types' legacy fields still take this path is TestListDataFilterOnDefault*).
+var i5rLegacyScan = server.WithLegacyScan(func(typeKey, _ string) bool { return typeKey == i5rKey }) //nolint:gochecknoglobals // read-only test/bench fixture, set once
+
 // i5FilterMutants are broken data-filter compilers for the list route
 // (server.WithListDataTerm). arg is the bound JSON document {prop: value}.
 func i5FilterMutants() map[string]func(arg string) string {
@@ -133,7 +139,7 @@ func i5rCleanup(ctx context.Context, e *etIso) error {
 // pool's extra principals and groups, and the records and shares written past
 // the API (as rows of an older version would be).
 func i5rSetup(ctx context.Context, cl Cluster, seed uint64) (*i5rRun, func() error, error) {
-	e, err := newETIso(ctx, cl, i5rNoRateLimit)
+	e, err := newETIso(ctx, cl, i5rNoRateLimit, i5rLegacyScan)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -147,7 +153,7 @@ func i5rSetup(ctx context.Context, cl Cluster, seed uint64) (*i5rRun, func() err
 		return err
 	}
 	for name, term := range i5FilterMutants() {
-		m, err := newETIso(ctx, cl, i5rNoRateLimit, server.WithListDataTerm(term))
+		m, err := newETIso(ctx, cl, i5rNoRateLimit, i5rLegacyScan, server.WithListDataTerm(term))
 		if err != nil {
 			return nil, stop, err
 		}

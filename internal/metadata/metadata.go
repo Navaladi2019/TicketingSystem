@@ -178,6 +178,8 @@ type Compiled struct {
 	// afresh on every ApplyDefaults so callers never share a value.
 	defaults map[string]json.RawMessage
 	unique   []string
+	// filterable holds the x-nava-filterable properties, sorted by Key.
+	filterable []FilterableField
 }
 
 // pointer builds a JSON pointer (RFC 6901) from unescaped tokens.

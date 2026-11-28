@@ -327,11 +327,13 @@ func TestP309NumberingUpsertAndUniqueness(t *testing.T) {
 	}
 }
 
-// Acceptance (P3-01 verdict condition): on a fresh cluster nava_app plans
-// with custom plans, from db-roles alone, and no other role's plan mode
-// changes. Drift, role-wide or in one database, is converged and logged,
-// and a converged cluster changes nothing.
+// Acceptance (P3-01 verdict condition, and TICK-990 for nava_worker): on a
+// fresh cluster nava_app and nava_worker plan with custom plans, from
+// db-roles alone, and no other role's plan mode changes. Drift, role-wide
+// or in one database, is converged and logged, and a converged cluster
+// changes nothing.
 func TestP309PlanCacheModeFromDBRoles(t *testing.T) {
+	const wantRoleSettings = "nava_app=plan_cache_mode=force_custom_plan nava_worker=plan_cache_mode=force_custom_plan"
 	m := freshCluster(t)
 	show := func(role string) string {
 		return queryString(t, connect(t, roleConfig(t, role, "nava")), "SHOW plan_cache_mode")
@@ -340,8 +342,11 @@ func TestP309PlanCacheModeFromDBRoles(t *testing.T) {
 	if got := show("nava_app"); got != "force_custom_plan" {
 		t.Fatalf("nava_app plan_cache_mode on a fresh cluster = %s, want force_custom_plan", got)
 	}
-	if got := show("nava_worker"); got != "auto" {
-		t.Errorf("nava_worker plan_cache_mode = %s, want the default auto", got)
+	if got := show("nava_worker"); got != "force_custom_plan" {
+		t.Errorf("nava_worker plan_cache_mode on a fresh cluster = %s, want force_custom_plan (TICK-990)", got)
+	}
+	if got := show("nava_relay"); got != "auto" {
+		t.Errorf("nava_relay plan_cache_mode = %s, want the default auto", got)
 	}
 
 	conn := connect(t, superConfig(t))
@@ -359,13 +364,15 @@ func TestP309PlanCacheModeFromDBRoles(t *testing.T) {
 	if !strings.Contains(buf.String(), `"msg":"reset role settings in database"`) {
 		t.Errorf("per-database reset not logged:\n%s", buf)
 	}
-	if got := show("nava_app"); got != "force_custom_plan" {
-		t.Errorf("nava_app plan_cache_mode after converging = %s, want force_custom_plan", got)
+	for _, r := range []string{"nava_app", "nava_worker"} {
+		if got := show(r); got != "force_custom_plan" {
+			t.Errorf("%s plan_cache_mode after converging = %s, want force_custom_plan", r, got)
+		}
 	}
-	if got := queryString(t, conn, `SELECT coalesce(string_agg(r.rolname || coalesce('@' || d.datname, '') || '=' || array_to_string(s.setconfig, ','), ' ' ORDER BY 1), '')
+	if got := queryString(t, conn, `SELECT coalesce(string_agg(r.rolname || coalesce('@' || d.datname, '') || '=' || array_to_string(s.setconfig, ','), ' ' ORDER BY r.rolname, d.datname NULLS FIRST), '')
 		FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole LEFT JOIN pg_database d ON d.oid = s.setdatabase
-		WHERE r.rolname = ANY ($1)`, m.RoleNames()); got != "nava_app=plan_cache_mode=force_custom_plan" {
-		t.Errorf("manifest role settings = %q, want only nava_app=plan_cache_mode=force_custom_plan", got)
+		WHERE r.rolname = ANY ($1)`, m.RoleNames()); got != wantRoleSettings {
+		t.Errorf("manifest role settings = %q, want only %q", got, wantRoleSettings)
 	}
 	if res, err := roles.Run(context.Background(), superConfig(t), m, passwords, log); err != nil || res.Total() != 0 {
 		t.Fatalf("run after converging: %+v, %v; want no changes", res, err)

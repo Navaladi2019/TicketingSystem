@@ -3,7 +3,7 @@ title: "9. Create and work with records"
 section: tour
 status: delivered
 sources: [docs/acceptance/s9-records.md, docs/acceptance/guide/bruno/S9/S9-4.bru, docs/acceptance/guide/bruno/S9/S9-9.bru, docs/acceptance/guide/bruno/S9/S9-13.bru]
-adrs: [ADR-001, ADR-005]
+adrs: [ADR-001, ADR-005, ADR-006-A2]
 operations: [createRecord, listRecords, getRecord, patchRecord, getRecordHistory]
 tables: [records]
 ---
@@ -51,7 +51,7 @@ Location: /api/v1/records/loan_application/01a1d38a-629a-70ff-a578-e438265b5edf
          "requester":"e4a636ce-…","state":"submitted","term_months":240}, …}
 ```
 
-A second create returns `LOAN0000002`. The filtered list returns both with `"total":2,"next_cursor":null`. The state change returns `200`, `Etag: W/"2"`, `"state":"under_review"`. The history lists both changes, newest first:
+A second create returns `LOAN0000002`. The filtered list returns both with `"total":2,"total_state":"exact","next_cursor":null`. The state change returns `200`, `Etag: W/"2"`, `"state":"under_review"`. The history lists both changes, newest first:
 
 ```json
 {"items":[
@@ -75,6 +75,18 @@ Failure paths, each a problem body with a stable `code`:
 ## What happens behind it
 
 Every create and update goes through one write pipeline: it validates the data against the type's current schema version, applies defaults, checks the state model, checks the access rules and masks, takes the record number, saves the record and its history entry together, and queues the audit entry. A `PATCH` is a JSON Merge Patch (RFC 7396), and the `ETag` is the record's version, so a stale write is refused instead of overwriting. Lists return only records the caller may read, with a `total` counted the same way. Details: [write pipeline](../system/core-write-pipeline.md), [records](../database/records.md), [numbering](../database/numbering.md).
+
+### Reading `total`
+
+Every list answer carries `total_state` next to `total` ([ADR-006-A2](../adr/adr-006-a2.md) A2-1):
+
+| `total_state` | `total` | Show |
+|---|---|---|
+| `exact` | the full count, 0 to 1,000 | the number |
+| `capped` | 1,000: more match | "1,000+" |
+| `unknown` | `null`, never 0: the count ran out of its time budget; the page itself is complete | "N+" (N = matches already listed) or "many" |
+
+`total_capped` is deprecated: it is still sent, `true` exactly when `total_state` is `capped`. A first page with no next page is the whole result, so its `total` is exact and no count runs (A2-4). On a list with a data filter the count runs after the page under a fixed budget; past it the answer is `unknown` instead of slow. Keep the best total you already know across pages: a later page that says `unknown` does not erase it. The TypeScript SDK does this for you with [`describeTotal`](../operations/sdk.md#list-totals-describetotal). Budget and mechanism: [Field index](../database/field-index.md#totals-on-a-filtered-list-adr-006-a2).
 
 ## Not built yet
 

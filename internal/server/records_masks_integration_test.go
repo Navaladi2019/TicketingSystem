@@ -61,6 +61,10 @@ func newMaskEnv(t *testing.T) *maskEnv {
 		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
 	}
 	m := &maskEnv{etEnv: e, desk: e.a.lookalikeGroup}
+	// A list filters a data field only when the registry flags it (ADR-006 D6).
+	e.flagField(t, e.a.id, "job", "short_description", "text", "ready", 100)
+	e.flagField(t, e.a.id, "job", "cost", "num", "ready", 100)
+	e.flagField(t, e.a.id, "job", "triage", "text", "ready", 100)
 	m.publishMasks(t, m.deskMasks())
 	return m
 }

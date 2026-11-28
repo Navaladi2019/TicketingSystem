@@ -1,0 +1,52 @@
+meta {
+  name: S21.14 AC1: filter[priority]=1 as Alice gives exactly the JSON scan's rows she may read
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[priority]=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  const all = await T.all('alice_token', 'filter[priority]=1');
+  bru.setVar('s21_all_p1_agent', JSON.stringify({ ids: all.ids, pages: all.pages, states: all.states, broken: all.broken, items: all.items.map(i => ({ priority: i.data.priority, due_at: i.data.due_at })) }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const T = require('./lib/s21')(N, bru);
+  const all = JSON.parse(bru.getVar('s21_all_p1_agent'));
+  const want = Number(N.v('s21_p1_agent_n'));
+  test(`Alice: ${all.ids.length} records over ${all.pages} pages; the JSON scan has ${want}`, () => expect(all.ids.length).to.eql(want));
+  test('the same records as the JSON scan (md5 of the sorted ids)', () => expect(require('crypto').createHash('md5').update([...all.ids].sort().join(',')).digest('hex')).to.eql(N.v('s21_p1_agent_md5')));
+  test('no record listed twice', () => expect(new Set(all.ids).size).to.eql(all.ids.length));
+  const first = N.json();
+  test(`every page meets the total contract (A2-1): this page ${first.total_state}, the limit-200 pages ${JSON.stringify(all.states)}`, () => {
+    expect(T.contract(first)).to.eql(null);
+    expect(all.broken).to.eql([]);
+  });
+  test('total: exact up to 1,000, capped at 1,000 past it, or null when unknown', () => {
+    if (first.total_state === 'unknown') expect(first.total).to.eql(null);
+    else { expect(first.total).to.eql(Math.min(want, 1000)); expect(first.total_state).to.eql(want > 1000 ? 'capped' : 'exact'); }
+  });
+  if (want < 50) test(`a short result (${want} < 50 matches): exact on the first page (A2-4)`, () => {
+    expect(first.total_state).to.eql('exact');
+    expect(first.total).to.eql(want);
+  });
+  test('every listed record matches the filter', () => expect(all.items.filter(d => !(d.priority === 1)).length).to.eql(0));
+  bru.setVar('s21_ids_p1_agent', JSON.stringify(all.ids));
+}
+
+docs {
+  The same filter as Alice, against the JSON scan restricted to what the default incident ACL lets her read (assigned to service-desk, or raised by her).
+}

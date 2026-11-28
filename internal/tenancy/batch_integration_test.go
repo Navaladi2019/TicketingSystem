@@ -472,3 +472,90 @@ func TestSavepointRollbackUndoesItsMemo(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestReadSettingAtCommit: the setting is read in the commit's round trip,
+// after everything queued, as the transaction left it, and handed over only
+// once the COMMIT succeeded. A registration from a savepoint counts, a
+// second one of the same name is ignored, and a rolled-back or failed
+// transaction calls nothing.
+func TestReadSettingAtCommit(t *testing.T) {
+	tenantA, tenantB := uuid.New(), uuid.New()
+	table, app, _ := rlsTable(t, tenantA, tenantB, 1)
+	const name = "nava.test_setting"
+
+	var got []string
+	record := func(_ context.Context, v string) { got = append(got, v) }
+	ctx, rec := tenancytest.Record(t.Context())
+	err := tenancy.InTenantTx(ctx, app, tenantA, func(tx pgx.Tx) error {
+		sp, err := tx.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		if !tenancy.ReadSettingAtCommit(sp, name, record) {
+			t.Error("ReadSettingAtCommit refused a savepoint of an InTenantTx transaction")
+		}
+		if err := sp.Commit(ctx); err != nil {
+			return err
+		}
+		tenancy.ReadSettingAtCommit(tx, name, record)
+		tenancy.ExecAtCommit(tx, "SELECT set_config($1, 'queued', true)", name)
+		_, err = tx.Exec(ctx, "SELECT set_config($1, 'sent', true)", name)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(got) != "[queued]" {
+		t.Errorf("committed got %q, want [queued]: one read, after the queued statement", got)
+	}
+	trips := rec.Trips()
+	last := trips[len(trips)-1]
+	if !last.Batch || len(last.SQL) != 3 || last.SQL[2] != "COMMIT" {
+		t.Errorf("last trip %+v, want one batch of the queued statement, the read and COMMIT", last)
+	}
+
+	// Never set: "". Nothing else queued: still one batch of read and COMMIT.
+	got = nil
+	if err := tenancy.InTenantTx(t.Context(), app, tenantA, func(tx pgx.Tx) error {
+		tenancy.ReadSettingAtCommit(tx, "nava.never_set", record)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "" {
+		t.Errorf("unset setting: committed got %q, want one empty value", got)
+	}
+
+	// Rolled back, and a commit that fails: nothing is called.
+	got = nil
+	_ = tenancy.InTenantTx(t.Context(), app, tenantA, func(tx pgx.Tx) error {
+		tenancy.ReadSettingAtCommit(tx, name, record)
+		return errors.New("roll back")
+	})
+	err = tenancy.InTenantTx(t.Context(), app, tenantA, func(tx pgx.Tx) error {
+		tenancy.ReadSettingAtCommit(tx, name, record)
+		tenancy.ExecAtCommit(tx, "INSERT INTO "+table+" VALUES ($1, 8)", tenantB)
+		return nil
+	})
+	if err == nil {
+		t.Fatal("the cross-tenant queued insert committed")
+	}
+	if len(got) != 0 {
+		t.Errorf("committed called %q after a rollback and a failed commit", got)
+	}
+
+	// Not an InTenantTx transaction: refused.
+	conn, err := app.Acquire(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	plain, err := conn.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = plain.Rollback(t.Context()) }()
+	if tenancy.ReadSettingAtCommit(plain, name, record) {
+		t.Error("ReadSettingAtCommit accepted a plain pgx transaction")
+	}
+}

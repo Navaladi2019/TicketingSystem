@@ -236,6 +236,19 @@ stories:
     issue: TICK-684
     title: A plugin authors number formats through the public API (parked)
     status: planned
+  - id: S21
+    issue: TICK-739
+    title: Filter a large ticket type on a flagged field in milliseconds
+    status: in-progress
+    evidence:
+      - docs/data/field-index-measured.md
+      - docs/reviews/tick-748-s21-isolation-attacks.md
+      - docs/data/adr-006-a2-gate.md
+      - docs/acceptance/S21/README.md
+  - id: S22
+    issue: TICK-740
+    title: Unflag a filterable field, raise the quota with operator approval, retire the JSONB scan
+    status: planned
   - id: S25
     issue: TICK-801
     title: A developer installs the TypeScript SDK and lists, reads and creates records

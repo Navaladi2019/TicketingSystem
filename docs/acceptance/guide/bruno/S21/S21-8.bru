@@ -1,0 +1,51 @@
+meta {
+  name: S21.8 The admin flags priority and due_at x-nava-filterable: 201
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s21-{{s21_run}}-flag
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const d = JSON.parse(bru.getVar('s21_def'));
+  d.schema.properties.priority['x-nava-filterable'] = true;
+  d.schema.properties.due_at['x-nava-filterable'] = true;
+  req.setBody({ definition: d });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('the next version, compatible, current', () => {
+    expect(b.version).to.eql(Number(bru.getVar('s21_prev')) + 1);
+    expect(b.compat).to.eql('compatible');
+    expect(b.current).to.eql(true);
+  });
+  test('both properties carry the flag', () => {
+    expect(b.schema.properties.priority['x-nava-filterable']).to.eql(true);
+    expect(b.schema.properties.due_at['x-nava-filterable']).to.eql(true);
+  });
+  bru.setVar('s21_flagged_at', String(Date.now()));
+}
+
+docs {
+  The current schema with `"x-nava-filterable": true` on `priority` (number side table) and `due_at` (timestamp side table). Adding the flag is Compatible (ADR-006 D8). The publish writes the two registry rows in state `backfilling` and the outbox rows that start the backfill.
+}

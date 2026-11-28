@@ -119,7 +119,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -140,6 +140,12 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			metric.WithUnit("{request}")); err != nil {
 			return nil, err
 		}
+		if h.listIndexed, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Float64Histogram(
+			"nava.records.list.indexed.duration",
+			metric.WithDescription("Duration of record lists that filter on a field-index field, by selectivity band of the matched rows and by whether the row ACL narrows the list (ADR-006 D13, R-a). No tenant label."),
+			metric.WithUnit("s")); err != nil {
+			return nil, err
+		}
 		if h.numberSpaceExhausted, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Int64Counter(
 			"records.number_space_exhausted",
 			metric.WithDescription("Record creates refused with number_space_exhausted (ADR-005 §3.5); each writes one audit entry (ADR-004-E9)."),
@@ -158,7 +164,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		if opts.allocPool == nil {
 			return nil, errors.New("server: the record routes need WithAllocatorPool (ADR-005 L2s): the number allocator never runs on the request pool")
 		}
-		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics}
+		fieldIndexMetrics, err := pipeline.NewFieldIndexMetrics(tel.MeterProvider)
+		if err != nil {
+			return nil, err
+		}
+		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics, FieldIndex: fieldIndexMetrics}
 		h.pipe = pipeline.New(h.acl, h.store, eventsink.Sink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
@@ -251,12 +261,18 @@ type handlers struct {
 	cursors           *cursor.Keyring
 	aclMaxBytes       int // the access policy byte limit (A1-2a)
 	dataFilterTimeout time.Duration
+	// countDelay and skipCount are the list's test seams, set only through
+	// WithCountDelay / WithSkipCount (export_test.go).
+	countDelay time.Duration
+	skipCount  bool
 	// listDataTerm replaces the list's data-filter term; nil in every
 	// production build (see listPlan.dataTerm).
 	listDataTerm func(arg string) string
-	store        entitytypes.Store
-	nfStore      numberformats.Store
-	tsStore      tenantsettings.Store
+	// legacyScan widens fieldindex.LegacyScan; nil in every production build.
+	legacyScan func(typeKey, field string) bool
+	store      entitytypes.Store
+	nfStore    numberformats.Store
+	tsStore    tenantsettings.Store
 	// nfGate refuses a non-default number format until M3 has run.
 	nfGate *numberformats.Gate
 	// typePublishCheck is the right to publish one entity type's definition;
@@ -278,6 +294,9 @@ type handlers struct {
 	// historyTooLong counts the histories refused for their length; nil
 	// counts nothing.
 	historyTooLong metric.Int64Counter
+	// listIndexed times a list that filters through the field index (ADR-006
+	// D13, R-a); nil records nothing.
+	listIndexed metric.Float64Histogram
 	// numberSpaceExhausted counts the creates refused with
 	// number_space_exhausted (records_number_space_exhausted_total, no tenant
 	// or definition label); nil counts nothing.
@@ -322,6 +341,10 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 // hands every other error to the shared handler.
 func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
+		if nr, ok := errors.AsType[*notReadyError](err); ok {
+			h.reg.WriteNotReady(w, r, nr.progress)
+			return
+		}
 		if pe, ok := errors.AsType[*problemError](err); ok {
 			// The 4xx codes that name fields. Each is a constant, so the
 			// registry guard sees a client error; any other code, fields or
@@ -387,6 +410,27 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.InvalidAccessPolicy:
 					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)
+					return
+				case problem.FilterableFieldNotTopLevel:
+					h.reg.Write(w, r, problem.FilterableFieldNotTopLevel, pe.fields...)
+					return
+				case problem.FilterableFieldTypeChange:
+					h.reg.Write(w, r, problem.FilterableFieldTypeChange, pe.fields...)
+					return
+				case problem.SearchableNotAvailable:
+					h.reg.Write(w, r, problem.SearchableNotAvailable, pe.fields...)
+					return
+				case problem.FieldNotFilterable:
+					h.reg.Write(w, r, problem.FieldNotFilterable, pe.fields...)
+					return
+				case problem.FilterableFieldRemovalUnavailable:
+					h.reg.Write(w, r, problem.FilterableFieldRemovalUnavailable, pe.fields...)
+					return
+				case problem.IndexQuotaExceeded:
+					h.reg.Write(w, r, problem.IndexQuotaExceeded, pe.fields...)
+					return
+				case problem.FieldIndexBusy:
+					h.reg.Write(w, r, problem.FieldIndexBusy, pe.fields...)
 					return
 				}
 			}

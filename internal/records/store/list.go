@@ -61,6 +61,16 @@ type ListQuery struct {
 	// into a MATERIALIZED CTE and then sorted, instead of walked in index
 	// order. The rows are the same either way.
 	Materialize []bool
+
+	// BudgetCount is set for a list with any data filter (indexed or legacy
+	// scan): its count runs under CountBudget in SAVEPOINT list_count.
+	BudgetCount bool
+	// CountDelay and SkipCount are test seams (ADR-006-A2 D-7A2-5): CountDelay
+	// sleeps inside every count statement, SkipCount runs no count and leaves the
+	// total unknown. The handler copies them only from fields that
+	// internal/server/export_test.go sets.
+	CountDelay time.Duration
+	SkipCount  bool
 }
 
 // CountDriver drives one count term (authz.RegionDriver): From is a FROM
@@ -92,12 +102,29 @@ type ListPage struct {
 	Total    int64
 	// TotalCapped is true when more than TotalCap rows match and Total is TotalCap.
 	TotalCapped bool
+	// TotalState says what Total means: TotalExact or TotalCapped here.
+	TotalState TotalState
 }
+
+// TotalState is how trustworthy ListPage.Total is (ADR-006-A2 A2-1).
+type TotalState string
+
+// The states of a list total. TotalUnknown means the count ran out of its time
+// budget (CountBudget); the page is complete and the total is null.
+const (
+	TotalExact   TotalState = "exact"
+	TotalCapped  TotalState = "capped"
+	TotalUnknown TotalState = "unknown"
+)
 
 // TotalCap is the most the list counts: an exact count of a large tenant's
 // matches alone misses the list p95 (P3-36), so past it Total is TotalCap and
 // TotalCapped is set.
 const TotalCap = 1000
+
+// CountBudget is the time a list's count may take before its total is reported
+// unknown instead (ADR-006-A2 A2-2). Not a setting.
+const CountBudget = 140 * time.Millisecond
 
 // DataFilterTimeout is the statement timeout of a list with a data filter (TICK-647).
 const DataFilterTimeout = 2 * time.Second
@@ -116,14 +143,8 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := append([]any{q.TenantID, q.DefinitionID}, q.Args...)
-	// The count reads records alone: the joins below only add columns (one
-	// definition, at most one group per row), so they cannot change the count.
-	var total int64
-	if err := tx.QueryRow(ctx, CountStatement(q), args...).Scan(&total); err != nil {
-		return nil, timedOut(ctx, q, fmt.Errorf("records/store: count records: %w", err))
-	}
-
+	// The page runs first and is read to the end (A2-3): a count that runs out
+	// of budget then costs the caller only its total.
 	sql, pageArgs, err := PageStatement(q)
 	if err != nil {
 		return nil, err
@@ -133,7 +154,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		return nil, timedOut(ctx, q, fmt.Errorf("records/store: list records: %w", err))
 	}
 	defer rows.Close()
-	page := &ListPage{Total: min(total, TotalCap), TotalCapped: total > TotalCap}
+	page := &ListPage{}
 	for rows.Next() {
 		var key *string
 		rec, err := scan(rowWithExtra{rows, &key})
@@ -147,10 +168,91 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		return nil, timedOut(ctx, q, fmt.Errorf("records/store: list records: %w", err))
 	}
 	rows.Close()
+
+	switch {
+	case q.SkipCount:
+		page.TotalState = TotalUnknown
+	case q.Keyset == "" && len(page.Records) <= q.Limit-1:
+		// First-page shortcut (A2-4): Limit is the fetch size, limit+1, so at
+		// most limit rows means no next page and the page is the whole result.
+		page.Total, page.TotalState = int64(len(page.Records)), TotalExact
+	default:
+		if err := countInto(ctx, tx, q, page); err != nil {
+			return nil, err
+		}
+	}
 	if err := restore(); err != nil {
 		return nil, err
 	}
 	return page, nil
+}
+
+// countInto runs the count of q and fills the page's total. With BudgetCount
+// the count runs under CountBudget inside SAVEPOINT list_count (A2-2): a 57014
+// on a live request leaves the total unknown instead of failing the list.
+func countInto(ctx context.Context, tx pgx.Tx, q ListQuery, page *ListPage) error {
+	args := append([]any{q.TenantID, q.DefinitionID}, q.Args...)
+	// The count reads records alone: the joins of the page only add columns (one
+	// definition, at most one group per row), so they cannot change the count.
+	stmt := CountStatement(q)
+	if q.CountDelay > 0 {
+		stmt = `SELECT c.n FROM (` + stmt + `) c(n) CROSS JOIN LATERAL (SELECT pg_sleep(` +
+			strconv.FormatFloat(q.CountDelay.Seconds(), 'f', 6, 64) + `)) s`
+	}
+	var total int64
+	if !q.BudgetCount {
+		if err := tx.QueryRow(ctx, stmt, args...).Scan(&total); err != nil {
+			return timedOut(ctx, q, fmt.Errorf("records/store: count records: %w", err))
+		}
+		setTotal(page, total)
+		return nil
+	}
+	// One no-argument Exec: SET LOCAL cannot take a parameter and the value is
+	// whole milliseconds.
+	if _, err := tx.Exec(ctx, "SAVEPOINT list_count; SET LOCAL statement_timeout = '"+
+		strconv.FormatInt(CountBudgetFor(q).Milliseconds(), 10)+"'"); err != nil {
+		return fmt.Errorf("records/store: open count budget: %w", err)
+	}
+	countErr := tx.QueryRow(ctx, stmt, args...).Scan(&total)
+	// Always ROLLBACK TO, never RELEASE: it undoes the SET LOCAL and, after a
+	// 57014, returns the aborted transaction to a usable state.
+	if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT list_count"); err != nil {
+		if countErr != nil {
+			return fmt.Errorf("records/store: count records: %w", countErr)
+		}
+		return fmt.Errorf("records/store: close count budget: %w", err)
+	}
+	if countErr != nil {
+		var pe *pgconn.PgError
+		if ctx.Err() == nil && errors.As(countErr, &pe) && pe.Code == "57014" {
+			page.Total, page.TotalState = 0, TotalUnknown
+			return nil
+		}
+		return timedOut(ctx, q, fmt.Errorf("records/store: count records: %w", countErr))
+	}
+	setTotal(page, total)
+	return nil
+}
+
+func setTotal(page *ListPage, total int64) {
+	page.Total, page.TotalCapped, page.TotalState = min(total, TotalCap), total > TotalCap, TotalExact
+	if page.TotalCapped {
+		page.TotalState = TotalCapped
+	}
+}
+
+// CountBudgetFor is the statement_timeout of q's budgeted count: CountBudget,
+// or for a legacy-scan list min(CountBudget, its Timeout), Timeout zero
+// meaning DataFilterTimeout.
+func CountBudgetFor(q ListQuery) time.Duration {
+	if !q.DataFilter {
+		return CountBudget
+	}
+	d := q.Timeout
+	if d <= 0 {
+		d = DataFilterTimeout
+	}
+	return min(CountBudget, d)
 }
 
 // rowWithExtra scans the record columns plus one trailing text column.

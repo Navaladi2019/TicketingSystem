@@ -1,5 +1,5 @@
 meta {
-  name: S10.60 C4: the admin filters on description: 200, the one incident, description unchanged
+  name: S10.60 C4: the admin filters on description: not masked, 400 field_not_filterable (description is not flagged)
   type: http
   seq: 60
 }
@@ -16,8 +16,10 @@ headers {
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.status(200);
-  const ids = N.json().items.map(i => i.id);
-  test('exactly the /service-desk incident', () => expect(ids).to.eql([bru.getVar('s10_sd_rec')]));
-  test('description unchanged', () => expect(N.json().items[0].data.description).to.eql('s10-internal-' + bru.getVar('s10_run')));
+  N.problem('field_not_filterable', 400);
+  N.fieldError('/filter/description');
+}
+
+docs {
+  The mask admits the admin, so the answer is the registry's, not `masked_field` (S10.56 is Alice's). Since ADR-006 D6 a data filter needs the field flagged `x-nava-filterable`, and `description` is on neither the flag nor the legacy allow-list (`incident.priority` only). The value is unchanged: S10.55 shows the admin reads it. Flagging it needs the P7-05 backfill to reach `ready`; the kit adds that step when it lands.
 }

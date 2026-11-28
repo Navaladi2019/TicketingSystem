@@ -286,6 +286,9 @@ type PoolRunner struct {
 	AllocTimeout time.Duration
 	// Metrics records the allocator's metrics (A8); nil records none.
 	Metrics *AllocMetrics
+	// FieldIndex counts the values of filterable fields that did not coerce
+	// (ADR-006 R5); nil counts none.
+	FieldIndex *FieldIndexMetrics
 }
 
 // InTenantTx implements TxRunner.
@@ -589,6 +592,15 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 	res, err := w.do(ctx)
 	if err != nil {
 		return Result{}, &ErrAtVersion{SchemaVersion: defVersion, FixedColumns: def.FixedColumns(), StateProperty: def.StateProperty(), Err: err}
+	}
+	// The records trigger counted any value of a flagged field that did not
+	// coerce in a transaction-local setting; the commit's round trip reads it
+	// (ADR-006 R5, fieldindex.go). Only for a type that flags a field: the
+	// registry holds a backfilling or ready row only for a field the current
+	// definition flags (P7-04), so any other write has nothing to count and
+	// keeps its commit batch as it was (TICK-692's statement budget).
+	if len(def.Filterable()) > 0 {
+		p.fieldIndexMetrics().watch(tx)
 	}
 	if p.beforeReturn != nil {
 		p.beforeReturn(ctx)

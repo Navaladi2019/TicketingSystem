@@ -1,0 +1,61 @@
+SET
+                                                                                                                                                       QUERY PLAN                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop Left Join (actual time=60.992..61.100 rows=51 loops=1)
+   Buffers: shared hit=72520 read=1
+   ->  Nested Loop (actual time=60.976..61.039 rows=51 loops=1)
+         Buffers: shared hit=72418 read=1
+         ->  Limit (actual time=60.924..60.940 rows=51 loops=1)
+               Buffers: shared hit=72317
+               ->  Merge Append (actual time=60.923..60.936 rows=51 loops=1)
+                     Sort Key: r.updated_at DESC, r.id DESC
+                     Buffers: shared hit=72317
+                     ->  Limit (actual time=60.869..60.876 rows=51 loops=1)
+                           Buffers: shared hit=72311
+                           ->  Sort (actual time=60.868..60.872 rows=51 loops=1)
+                                 Sort Key: r.updated_at DESC, r.id DESC
+                                 Sort Method: top-N heapsort  Memory: 50kB
+                                 Buffers: shared hit=72311
+                                 ->  Nested Loop Semi Join (actual time=0.109..57.853 rows=9684 loops=1)
+                                       Buffers: shared hit=72311
+                                       ->  Index Scan using records_list_group on records r (actual time=0.036..15.541 rows=20137 loops=1)
+                                             Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (entity_definition_id = 'acb51fac-8968-4548-b316-bcde4aa5f852'::uuid) AND (assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{01a200e8-b6eb-73a9-a2c0-e71630a4030b}'::uuid[])))
+                                             Buffers: shared hit=11897
+                                       ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.002..0.002 rows=0 loops=20137)
+                                             Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (field_id = '01a200e9-5a48-7548-91e3-191a8bfecfee'::uuid) AND (value = '3'::double precision) AND (record_id = r.id))
+                                             Heap Fetches: 2
+                                             Buffers: shared hit=60414
+                     ->  Limit (actual time=0.014..0.015 rows=0 loops=1)
+                           Buffers: shared hit=3
+                           ->  Nested Loop Semi Join (actual time=0.012..0.013 rows=0 loops=1)
+                                 Buffers: shared hit=3
+                                 ->  Index Scan using records_list_requester on records r_1 (actual time=0.012..0.012 rows=0 loops=1)
+                                       Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (entity_definition_id = 'acb51fac-8968-4548-b316-bcde4aa5f852'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = '01a200e8-b6e5-7a00-95f1-f5a9c9d5e8c6'::uuid))
+                                       Filter: ((assignment_group_id IS NULL) OR (assignment_group_id <> ALL ('{01a200e8-b6eb-73a9-a2c0-e71630a4030b}'::uuid[])))
+                                       Buffers: shared hit=3
+                                 ->  Index Only Scan using rfv_num_value on rfv_num v_1 (never executed)
+                                       Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (field_id = '01a200e9-5a48-7548-91e3-191a8bfecfee'::uuid) AND (value = '3'::double precision) AND (record_id = r_1.id))
+                                       Heap Fetches: 0
+                     ->  Limit (actual time=0.038..0.038 rows=0 loops=1)
+                           Buffers: shared hit=3
+                           ->  Nested Loop Semi Join (actual time=0.037..0.037 rows=0 loops=1)
+                                 Buffers: shared hit=3
+                                 ->  Index Scan using records_list_requester on records r_2 (actual time=0.036..0.036 rows=0 loops=1)
+                                       Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (entity_definition_id = 'acb51fac-8968-4548-b316-bcde4aa5f852'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = '01a200e8-b6e5-7a00-95f1-f5a9c9d5e8c6'::uuid))
+                                       Filter: ((state = ANY ('{new}'::text[])) AND ((assignment_group_id IS NULL) OR (assignment_group_id <> ALL ('{01a200e8-b6eb-73a9-a2c0-e71630a4030b}'::uuid[]))) AND ((requester_id IS NULL) OR (requester_id <> '01a200e8-b6e5-7a00-95f1-f5a9c9d5e8c6'::uuid)))
+                                       Buffers: shared hit=3
+                                 ->  Index Only Scan using rfv_num_value on rfv_num v_2 (never executed)
+                                       Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (field_id = '01a200e9-5a48-7548-91e3-191a8bfecfee'::uuid) AND (value = '3'::double precision) AND (record_id = r_2.id))
+                                       Heap Fetches: 0
+         ->  Index Scan using entity_definitions_pkey on entity_definitions d (actual time=0.001..0.001 rows=1 loops=51)
+               Index Cond: ((tenant_id = r.tenant_id) AND (id = r.entity_definition_id))
+               Buffers: shared hit=101 read=1
+   ->  Index Scan using groups_live_key on groups g (actual time=0.001..0.001 rows=1 loops=51)
+         Index Cond: ((tenant_id = r.tenant_id) AND (id = r.assignment_group_id))
+         Buffers: shared hit=102
+ Planning:
+   Buffers: shared hit=669 read=40
+ Planning Time: 2.391 ms
+ Execution Time: 61.270 ms
+(56 rows)
+

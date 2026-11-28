@@ -145,6 +145,15 @@ roles:
       workflow_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       workflow_definition_versions: { SELECT: [], INSERT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
+      # Field index (ADR-006 D14, P7-01, TICK-741, 20261127110000): the side
+      # tables are written as DELETE then INSERT, never UPDATE (P7-02's trigger
+      # runs as the record writer). Publish (P7-04) creates a registry row and
+      # flips its state; it never rewrites the key, the field or the type.
+      record_index_fields: { SELECT: [], INSERT: [], UPDATE: [state, progress, requested_version, updated_at] }
+      rfv_text: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role. TICK-940: the format-2 rules CHECK calls the acl2_*
     # ones, and the tenant-id trigger (as the inserting role) acl2_id_pointers.
@@ -154,6 +163,9 @@ roles:
       "public.acl_cond_valid(jsonb)": [EXECUTE]
       "public.acl_rules_valid(jsonb)": [EXECUTE]
       "public.acl_masks_valid(jsonb)": [EXECUTE]
+      # P7-02 (TICK-742): the records trigger (as the writer) and the P7-05
+      # backfill call the one coercion of ADR-006 D5.
+      "public.record_field_coerce(jsonb,text)": [EXECUTE]
       "public.acl2_bad(text,text)": [EXECUTE]
       "public.acl2_seg(text)": [EXECUTE]
       "public.acl2_unknown_key(jsonb,text,text[])": [EXECUTE]
@@ -206,6 +218,11 @@ roles:
   nava_worker:
     attributes: [LOGIN]
     pgbouncer_login: true
+    # TICK-990 (P7-07, ADR-006 D10): the backfill's keyset step on a pgx
+    # cached statement switched to a generic plan after five runs (est. 2
+    # rows; 200,430 rows read and sorted on disk, 821 ms against 17 ms
+    # custom). Same setting as nava_app (P3-01). db-roles applies it.
+    settings: { plan_cache_mode: force_custom_plan }
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
@@ -277,6 +294,15 @@ roles:
       workflow_definitions: { SELECT: [] }
       workflow_definition_versions: { SELECT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
+      # Field index (ADR-006 D14, P7-01, TICK-741): the trigger as the record
+      # writer, the backfill (D10) and the removal (D11). The worker moves a
+      # registry row's state and progress and deletes it once its side rows
+      # are gone; it never sets requested_version, which only publish does.
+      record_index_fields: { SELECT: [], UPDATE: [state, progress, updated_at], DELETE: [] }
+      rfv_text: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
       # TICK-782 (20261113190000): records/store's recordSelect joins the
       # assignment group for its tombstone; groups_select's tenant predicate
       # reads tenant_id. Never path or keycloak_group_id.
@@ -289,6 +315,10 @@ roles:
       principals: { SELECT: [tenant_id, id, deleted_at] }
       group_members: { SELECT: [tenant_id, group_id, principal_id] }
     # No acl% function (ADR-010-A1 A1-3 c): it no longer inserts acl_versions.
+    functions:
+      # P7-02 (TICK-742): the records trigger (as the writer) and the P7-05
+      # backfill call the one coercion of ADR-006 D5.
+      "public.record_field_coerce(jsonb,text)": [EXECUTE]
 
   # Every column of outbox but dedupe_key and last_error; writes only the
   # dispatch columns. Nothing on workflow_ref or records.

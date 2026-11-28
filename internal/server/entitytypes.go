@@ -197,6 +197,7 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 	var (
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
+		quota    *entitytypes.IndexQuotaError
 		invalidD *metadata.ErrInvalidDefinition
 	)
 	switch {
@@ -212,6 +213,8 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 		return nil, &problemError{problem.EntityTypeExists, nil, err}
 	case errors.Is(err, entitytypes.ErrPrefixTaken):
 		return nil, &problemError{problem.NumberPrefixTaken, nil, err}
+	case errors.As(err, &quota):
+		return nil, &problemError{problem.IndexQuotaExceeded, pointerErrors(quota.Paths, "index_quota_exceeded"), err}
 	case errors.As(err, &secret):
 		return nil, h.secretProblem(ctx, secret, err)
 	case errors.As(err, &required):
@@ -294,10 +297,19 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		overlap  *entitytypes.OverlapError
 		conflict *entitytypes.ConflictError
 		invalidD *metadata.ErrInvalidDefinition
+		refused  *metadata.RefusalError
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
+		quota    *entitytypes.IndexQuotaError
+		busy     *entitytypes.FieldIndexBusyError
 	)
 	switch {
+	case errors.As(err, &refused):
+		return nil, refusalProblem(refused, "/definition", err)
+	case errors.As(err, &quota):
+		return nil, &problemError{problem.IndexQuotaExceeded, pointerErrors(quota.Paths, "index_quota_exceeded"), err}
+	case errors.As(err, &busy):
+		return nil, &problemError{problem.FieldIndexBusy, pointerErrors(busy.Paths, "field_index_busy"), err}
 	case errors.As(err, &secret):
 		return nil, h.secretProblem(ctx, secret, err)
 	case errors.As(err, &required):
@@ -532,6 +544,10 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 			_, err = metadata.Compile(cr.def)
 		}
 		if err != nil {
+			var refused *metadata.RefusalError
+			if errors.As(err, &refused) {
+				return cr, refusalProblem(refused, "/definition", err)
+			}
 			var ie *metadata.ErrInvalidDefinition
 			if !errors.As(err, &ie) {
 				return cr, &problemError{problem.InternalError, nil, err}
@@ -564,6 +580,30 @@ func parseNumberingMode(fields map[string]json.RawMessage) (metadata.NumberingMo
 		return "", true
 	}
 	return m, false
+}
+
+// refusalProblem maps a metadata refusal (ADR-006 D8) to its registered
+// code, naming each path under prefix. An unknown code is an internal error:
+// the metadata package and this switch are out of step.
+func refusalProblem(r *metadata.RefusalError, prefix string, err error) *problemError {
+	var code problem.Code
+	switch r.Code {
+	case metadata.RefusalFilterableNotTopLevel:
+		code = problem.FilterableFieldNotTopLevel
+	case metadata.RefusalFilterableTypeChange:
+		code = problem.FilterableFieldTypeChange
+	case metadata.RefusalSearchableNotAvailable:
+		code = problem.SearchableNotAvailable
+	case metadata.RefusalFilterableRemovalUnavailable:
+		code = problem.FilterableFieldRemovalUnavailable
+	default:
+		return &problemError{problem.InternalError, nil, err}
+	}
+	fields := make([]problem.FieldError, len(r.Paths))
+	for i, path := range r.Paths {
+		fields[i] = invalid(prefix+path, r.Code)
+	}
+	return &problemError{code, fields, err}
 }
 
 func unprocessable(fields ...problem.FieldError) *problemError {
@@ -691,3 +731,12 @@ var (
 	_ api.GetEntityTypeVersionResponseObject     = (*notFoundResponse)(nil)
 	_ api.PublishEntityTypeVersionResponseObject = (*notFoundResponse)(nil)
 )
+
+// pointerErrors names each definition-relative path under /definition.
+func pointerErrors(paths []string, code string) []problem.FieldError {
+	out := make([]problem.FieldError, len(paths))
+	for i, p := range paths {
+		out[i] = invalid("/definition"+p, code)
+	}
+	return out
+}

@@ -13,12 +13,15 @@ import (
 // database driver, an HTTP or socket client, a process runner, or another
 // platform package. The jsonschema library pulls in os, net/url and
 // net/netip for parsing only; the deny-all loader keeps os unused for loads.
+// The one platform package allowed is internal/fieldindex, a leaf of
+// constants with no imports (the FilterableField value types, P7-03).
 func TestNoDatabaseOrNetworkImports(t *testing.T) {
 	direct := goList(t, "{{join .Imports \"\\n\"}}", ".")
 	allowed := []string{
 		"bytes", "cmp", "embed", "encoding/json", "encoding/json/jsontext", "errors", "fmt", "io", "io/fs", "maps",
 		"path", "reflect", "regexp", "slices", "strconv", "strings",
 		"github.com/santhosh-tekuri/jsonschema/v6", "github.com/santhosh-tekuri/jsonschema/v6/kind",
+		fieldindexPkg,
 	}
 	for _, imp := range direct {
 		if !slices.Contains(allowed, imp) {
@@ -36,7 +39,7 @@ func TestNoDatabaseOrNetworkImports(t *testing.T) {
 		if dep == "net" {
 			t.Errorf("dependency graph contains package net (sockets)")
 		}
-		if dep == "github.com/Navaladi2019/TicketingSystem/internal/metadata" {
+		if dep == "github.com/Navaladi2019/TicketingSystem/internal/metadata" || dep == fieldindexPkg {
 			continue
 		}
 		for _, d := range denied {
@@ -46,6 +49,8 @@ func TestNoDatabaseOrNetworkImports(t *testing.T) {
 		}
 	}
 }
+
+const fieldindexPkg = "github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 
 func goList(t *testing.T, format string, args ...string) []string {
 	t.Helper()

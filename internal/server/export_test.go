@@ -1,9 +1,14 @@
 package server
 
 import (
+	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
 // OperatorPrefix is the prefix routeAuth sends to the operator authentication,
@@ -24,6 +29,24 @@ func WithAuditMasker(m read.Masker) Option { return func(o *options) { o.auditMa
 func WithExportPaging(pageSize int, onPage func(time.Time, string)) Option {
 	return func(o *options) { o.exportPageSize, o.exportOnPage = pageSize, onPage }
 }
+
+// ExistsTermForTest is the EXISTS the list compiles for a ready data filter
+// on the field fieldID of value type vt: its SQL with placeholders from $1
+// and its arguments in order. The pushdown test EXPLAINs the real text.
+func ExistsTermForTest(vt fieldindex.ValueType, fieldID uuid.UUID, op string, values ...any) (string, []any) {
+	var args []any
+	next := func(v any, cast string) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args)) + "::" + cast
+	}
+	return existsTerm([]listFilter{{prop: "f", op: op, values: values, idx: &pipeline.IndexField{ID: fieldID, ValueType: vt}}}, next), args
+}
+
+// WithCountDelay makes every list count statement sleep d (ADR-006-A2 D-7A2-5).
+func WithCountDelay(d time.Duration) Option { return func(o *options) { o.countDelay = d } }
+
+// WithSkipCount makes lists run no count; their total is unknown.
+func WithSkipCount() Option { return func(o *options) { o.skipCount = true } }
 
 // AddOrgUnitMasks is addOrgUnitMasks, so a test can call it in a transaction.
 var AddOrgUnitMasks = addOrgUnitMasks //nolint:gochecknoglobals // test-only alias of an unexported function

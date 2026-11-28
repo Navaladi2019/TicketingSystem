@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
@@ -54,12 +56,18 @@ const (
 type Temporal interface {
 	ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow any, args ...any) (client.WorkflowRun, error)
 	SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg any) error
+	SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg any,
+		options client.StartWorkflowOptions, workflow any, workflowArgs ...any) (client.WorkflowRun, error)
 }
 
 // The values of the op and outcome attributes of outbox_relay_dispatches.
 const (
 	opStart  = "start"
 	opSignal = "signal"
+	// opSignalWithStart is a field_index.backfill row: a signal to the
+	// tenant's field-index coordinator, which the call starts if it is not
+	// running (PLAN-007 D-7-12).
+	opSignalWithStart = "signal_with_start"
 
 	outcomeDispatched     = "dispatched"
 	outcomeAlreadyStarted = "already_started"
@@ -126,7 +134,7 @@ func NewDispatcher(r *Relay, tc Temporal, tp trace.TracerProvider, mp metric.Met
 	}
 	meter := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/relay")
 	dispatches, err := meter.Int64Counter("outbox_relay_dispatches",
-		metric.WithDescription("Outbox rows the relay dispatched or settled, by op (start, signal) and outcome. Never labelled by tenant or workflow."))
+		metric.WithDescription("Outbox rows the relay dispatched or settled, by op (start, signal, signal_with_start) and outcome. Never labelled by tenant or workflow."))
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +217,10 @@ func (d *Dispatcher) Poll(ctx context.Context) (int, error) {
 // outbox id; the SDK's child span adds the workflow and run id.
 func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time) {
 	op := opSignal
-	if c.IsStart() {
+	switch {
+	case c.Kind == outbox.FieldIndexBackfillKind:
+		op = opSignalWithStart
+	case c.IsStart():
 		op = opStart
 	}
 	ctx, span := d.tracer.Start(ctx, "outbox.dispatch "+op,
@@ -221,6 +232,9 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 	log := d.log.With(slog.String("tenant_id", c.TenantID.String()), slog.String("outbox_id", c.ID.String()),
 		slog.String("op", op), slog.Int("attempts", int(c.Attempts)))
 	workflowID, ok := WorkflowID(c)
+	if ok && op == opSignalWithStart {
+		workflowID = fieldindex.CoordinatorWorkflowID(c.TenantID.String())
+	}
 	if !ok {
 		d.settle(ctx, log, c, op, outcomeInvalidTarget, CauseInvalidTarget)
 		return
@@ -233,6 +247,13 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 		d.settle(ctx, log, c, op, outcomeInvalidPayload, CauseInvalidPayload)
 		return
 	}
+	var item fieldindex.EnqueueItem
+	if op == opSignalWithStart {
+		if item, ok = enqueueItem(c); !ok {
+			d.settle(ctx, log, c, op, outcomeInvalidPayload, CauseInvalidPayload)
+			return
+		}
+	}
 	if !d.now().Before(deadline) {
 		d.settle(ctx, log, c, op, outcomeBackoff, CauseLeaseTooShort)
 		return
@@ -243,10 +264,15 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 	delivery := outbox.Delivery{OutboxID: c.ID, KindVersion: c.KindVersion, CausationID: c.CausationID,
 		CausationDepth: c.CausationDepth, Payload: c.Payload}
 	var err error
-	if op == opStart {
+	switch op {
+	case opStart:
 		d.beforeStart(tctx, c)
 		_, err = d.temporal.ExecuteWorkflow(tctx, startOptions(workflowID, c.TenantID), c.Kind, delivery)
-	} else {
+	case opSignalWithStart:
+		d.beforeStart(tctx, c)
+		_, err = d.temporal.SignalWithStartWorkflow(tctx, workflowID, fieldindex.SignalEnqueue, item,
+			coordinatorOptions(workflowID, c.TenantID), fieldindex.CoordinatorWorkflowType, workerguard.RunInput{Delivery: delivery})
+	default:
 		err = d.temporal.SignalWorkflow(tctx, workflowID, "", c.Kind, delivery)
 	}
 	outcome, cause := classify(op, err)
@@ -329,6 +355,45 @@ func startOptions(workflowID string, tenant uuid.UUID) client.StartWorkflowOptio
 	}
 }
 
+// coordinatorOptions are the start options of a field-index coordinator
+// signal-with-start: startOptions, except that a completed coordinator's id
+// may start again (the coordinator completes when idle), and a running one
+// takes the signal. The Authorizer allows only this workflow type to be
+// signal-with-started here, never field_index.backfill.run (TICK-745).
+func coordinatorOptions(workflowID string, tenant uuid.UUID) client.StartWorkflowOptions {
+	o := startOptions(workflowID, tenant)
+	o.WorkflowIDReusePolicy = enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
+	o.WorkflowExecutionErrorWhenAlreadyStarted = false
+	return o
+}
+
+// enqueueItem is the coordinator's signal body for a field_index.backfill
+// row (ADR-006 D10, TICK-745): the field from the payload, which
+// ValidateKindPayload has checked, requested_version from target_seq (the
+// payload admits UUIDs only), and the row's own id for the coordinator's
+// dedupe. Nothing else is read. A field id that is not a canonical UUID, or
+// a version out of range, is not dispatched.
+//
+// The tenant is the row's (tenant_id, written under RLS), never the
+// payload's: the payload's tenant_id must equal it, or the row is refused,
+// fail closed, before any Temporal call (TICK-748 review condition). A forged
+// payload naming another tenant never reaches a coordinator.
+func enqueueItem(c Claimed) (fieldindex.EnqueueItem, bool) {
+	var p struct {
+		TenantID string `json:"tenant_id"`
+		FieldID  string `json:"field_id"`
+	}
+	if json.Unmarshal(c.Payload, &p) != nil || p.TenantID != c.TenantID.String() {
+		return fieldindex.EnqueueItem{}, false
+	}
+	f, err := uuid.Parse(p.FieldID)
+	if err != nil || f == uuid.Nil || f.String() != p.FieldID || c.TargetSeq < 1 || c.TargetSeq > 32767 {
+		return fieldindex.EnqueueItem{}, false
+	}
+	return fieldindex.EnqueueItem{Op: fieldindex.OpBackfill, FieldID: p.FieldID,
+		RequestedVersion: int(c.TargetSeq), OutboxID: c.ID.String()}, true
+}
+
 // WorkflowID is the Temporal workflow id of c, t:<tenant_id>:<target_key>
 // (A.2), and whether c may be dispatched at all. target_key must be
 // <kind>:<uuid in canonical form> with a kind outbox.ValidKind accepts, and
@@ -352,16 +417,18 @@ func WorkflowID(c Claimed) (string, bool) {
 // classify maps a Temporal call's error to an outcome and the cause to
 // record. AlreadyStarted is dispatched (REJECT_DUPLICATE: a redelivered start
 // starts nothing). A signal's NotFound, which is also what Temporal returns
-// for a completed workflow, is terminal. Everything else is retried.
+// for a completed workflow, is terminal. Everything else, a
+// signal-with-start's errors included, is retried.
 func classify(op string, err error) (outcome, cause string) {
 	if err == nil {
 		return outcomeDispatched, ""
 	}
-	if op == opStart {
+	switch op {
+	case opStart:
 		if _, ok := errors.AsType[*serviceerror.WorkflowExecutionAlreadyStarted](err); ok {
 			return outcomeAlreadyStarted, ""
 		}
-	} else {
+	case opSignal:
 		if _, ok := errors.AsType[*serviceerror.NotFound](err); ok {
 			return outcomeTargetMissing, CauseTargetMissing
 		}

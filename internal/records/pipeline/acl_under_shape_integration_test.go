@@ -225,7 +225,23 @@ func (w *shapeWorld) list(ctx context.Context, tx pgx.Tx, pol *authz.Policy, p i
 	if err != nil {
 		return listing{}, err
 	}
-	out := listing{total: page.Total, capped: page.TotalCapped, read: read}
+	// The count statement itself: List skips it when a first page holds every
+	// row (ADR-006-A2 A2-4), which the all-rows reads here always do.
+	var n int64
+	if err := tx.QueryRow(ctx, pipeline.CountStatement(q), append([]any{w.tenant, w.def}, q.Args...)...).Scan(&n); err != nil {
+		return listing{}, err
+	}
+	out := listing{total: min(n, store.TotalCap), capped: n > store.TotalCap, read: read}
+	want, state := out.total, store.TotalExact
+	if out.capped {
+		state = store.TotalCapped
+	}
+	if len(page.Records) < limit {
+		want, state = int64(len(page.Records)), store.TotalExact
+	}
+	if page.Total != want || page.TotalState != state {
+		return listing{}, fmt.Errorf("list of %d rows at limit %d: total %d %q, want %d %q", len(page.Records), limit, page.Total, page.TotalState, want, state)
+	}
 	for _, r := range page.Records {
 		out.ids = append(out.ids, r.ID)
 	}

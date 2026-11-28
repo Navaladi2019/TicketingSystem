@@ -85,6 +85,33 @@ If OpenObserve is not running (a stack without the `operator` profile), the Coll
 | `groupsync_org_closure_unrooted_units` | nava-groupsync | Live units with no closure self row, so outside every region. Alert: `GroupsyncOrgUnitsUnrooted`, on the counter. The WARN line repeats every cycle |
 | `groupsync_org_closure_drift_repairs` | nava-groupsync | Times the stored closure differed from the live tree and was repaired (not a first import, not a delta). No tenant label. Alert: `GroupsyncOrgClosureDriftRepaired` |
 
+### Field index (S21, story branch)
+
+On `TICK-739/filterable-fields`, not yet on `main`. One alert rule,
+`RecordsListTotalUnknown` (TICK-1051), is in
+`deploy/compose/prometheus/rules/records.yml`; the other signals have no rule
+yet and their log lines carry `alert=true`:
+
+| Metric or log line | Meaning | Where to look |
+|---|---|---|
+| `nava_field_index_uncoerced_total{entity_definition}` | Values of a flagged field that did not coerce to its type, counted by the records trigger after commit and by the backfill. The label is the type's opaque id, never a tenant or value | The type's definition and the writers of that field. See [Field index](../database/field-index.md#the-uncoerced-counter) |
+| `field_index_barrier_slow` and the `field index barrier slow` log line (`alert=true`) | A backfill barrier has waited 15 minutes for a transaction that was open at the flip; it keeps waiting | The long-running transaction in `pg_stat_activity`. See [Field-index backfill](../workflows/field-index-backfill.md) |
+| Coordinator `Warn` line with `alert=true` and the field id | A backfill child failed; the field stays in its state and the queue moves on | nava-worker logs for that workflow id |
+| `nava.records.list.indexed.duration` (Prometheus: `nava_records_list_indexed_duration_seconds`) | Duration of lists that filter on an indexed field, labelled `acl` (`open` or `narrowing`), `selectivity_band` and `total_state` (`exact`, `capped`, `unknown`; ADR-006-A2 A2-7). No tenant, field or value label. Legacy-scan lists are not in this series | Prometheus |
+| `RecordsListTotalUnknown` (warning) | More than 5% of indexed lists over the last hour answered `total_state="unknown"`, for 5 minutes; no lists, no alert. The count ran past its budget (140 ms on the story branch) and `total` was `null`; the page was complete. This is the R-a signal, not an outage | See the runbook below |
+
+**Runbook, `RecordsListTotalUnknown`** (the rule's annotation, A2-7). It is
+expected after a field backfill or bulk edits that leave a poor visibility map
+on the `rfv_*` tables, until autovacuum runs. Check `pg_stat_user_tables`
+(`n_dead_tup`, `last_autovacuum`, `last_autoanalyze`) for the `rfv_*` tables.
+If it persists more than 24 h after autovacuum has run, open the R-a / A1-6
+follow-up (owner: Technical Lead, PLAN-007-A1 D-7A1-6). Firing in production is a
+trigger of `AR-S21-01` and Story S21c (TICK-1159). The rule's annotation still
+says "200 ms budget"; the shipping value is 140 ms
+([Field index](../database/field-index.md#totals-on-a-filtered-list-adr-006-a2)).
+Rule tests: `deploy/compose/prometheus/tests/records_test.yml`, run by
+`lineage.TestAlertRules`.
+
 ## What is never in telemetry
 
 Spans carry no client values or personal data. Logs carry no raw path, query, headers, client IP or tokens. The full list of controls and known gaps is in [observability-notes.md](../../../architecture/observability-notes.md).

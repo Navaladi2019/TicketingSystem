@@ -27,42 +27,55 @@ type Code string
 
 // The registered codes.
 const (
-	TenantUnresolved              Code = "tenant_unresolved"
-	InvalidToken                  Code = "invalid_token"
-	IdempotencyKeyReuse           Code = "idempotency_key_reuse"
-	IdempotencyInFlight           Code = "idempotency_in_flight"
-	Forbidden                     Code = "forbidden"
-	DomainClaimed                 Code = "domain_claimed"
-	InvalidIdPConfig              Code = "invalid_idp_config"
-	OnboardingConflict            Code = "onboarding_conflict"
-	InvalidCursor                 Code = "invalid_cursor"
-	RateLimited                   Code = "rate_limited"
-	RetryLater                    Code = "retry_later"
-	NotFound                      Code = "not_found"
-	ValidationFailed              Code = "validation_failed"
-	MethodNotAllowed              Code = "method_not_allowed"
-	NotImplemented                Code = "not_implemented"
-	InternalError                 Code = "internal_error"
-	InvalidDefinition             Code = "invalid_definition"
-	EntityTypeExists              Code = "entity_type_exists"
-	NumberPrefixTaken             Code = "number_prefix_taken"
-	SchemaBreakingChange          Code = "schema_breaking_change"
-	WorkflowDefinitionInvalid     Code = "workflow_definition_invalid"
-	RecordInvalid                 Code = "record_invalid"
-	IfMatchRequired               Code = "if_match_required"
-	VersionConflict               Code = "version_conflict"
-	IllegalTransition             Code = "illegal_transition"
-	UniqueViolation               Code = "unique_violation"
-	ConfigSecretInContent         Code = "config_secret_in_content"
-	DefinitionSecretRequired      Code = "definition_secret_required"
-	AssignmentGroupRemoved        Code = "assignment_group_removed"
-	HistoryTooLong                Code = "history_too_long"
-	MaskedField                   Code = "masked_field"
-	FilterTooExpensive            Code = "filter_too_expensive"
-	FieldNotWritable              Code = "field_not_writable"
-	InvalidAccessPolicy           Code = "invalid_access_policy"
-	ExportInProgress              Code = "export_in_progress"
-	ChainAlive                    Code = "chain_alive"
+	TenantUnresolved          Code = "tenant_unresolved"
+	InvalidToken              Code = "invalid_token"
+	IdempotencyKeyReuse       Code = "idempotency_key_reuse"
+	IdempotencyInFlight       Code = "idempotency_in_flight"
+	Forbidden                 Code = "forbidden"
+	DomainClaimed             Code = "domain_claimed"
+	InvalidIdPConfig          Code = "invalid_idp_config"
+	OnboardingConflict        Code = "onboarding_conflict"
+	InvalidCursor             Code = "invalid_cursor"
+	RateLimited               Code = "rate_limited"
+	RetryLater                Code = "retry_later"
+	NotFound                  Code = "not_found"
+	ValidationFailed          Code = "validation_failed"
+	MethodNotAllowed          Code = "method_not_allowed"
+	NotImplemented            Code = "not_implemented"
+	InternalError             Code = "internal_error"
+	InvalidDefinition         Code = "invalid_definition"
+	EntityTypeExists          Code = "entity_type_exists"
+	NumberPrefixTaken         Code = "number_prefix_taken"
+	SchemaBreakingChange      Code = "schema_breaking_change"
+	WorkflowDefinitionInvalid Code = "workflow_definition_invalid"
+	RecordInvalid             Code = "record_invalid"
+	IfMatchRequired           Code = "if_match_required"
+	VersionConflict           Code = "version_conflict"
+	IllegalTransition         Code = "illegal_transition"
+	UniqueViolation           Code = "unique_violation"
+	ConfigSecretInContent     Code = "config_secret_in_content"
+	DefinitionSecretRequired  Code = "definition_secret_required"
+	AssignmentGroupRemoved    Code = "assignment_group_removed"
+	HistoryTooLong            Code = "history_too_long"
+	MaskedField               Code = "masked_field"
+	FilterTooExpensive        Code = "filter_too_expensive"
+	FieldNotWritable          Code = "field_not_writable"
+	InvalidAccessPolicy       Code = "invalid_access_policy"
+	ExportInProgress          Code = "export_in_progress"
+	ChainAlive                Code = "chain_alive"
+	// ADR-006 D8: the metadata refusals for x-nava-filterable and the
+	// reserved x-nava-searchable (metadata.RefusalError).
+	FilterableFieldNotTopLevel Code = "filterable_field_not_top_level"
+	FilterableFieldTypeChange  Code = "filterable_field_type_change"
+	SearchableNotAvailable     Code = "searchable_not_available"
+	// ADR-006 D6: a list filter on a data field the registry does not serve.
+	FieldNotFilterable Code = "field_not_filterable"
+	FieldNotReady      Code = "field_not_ready"
+	// ADR-006 D8, D12 (P7-04): publish refusals for the field-index registry.
+	FilterableFieldRemovalUnavailable Code = "filterable_field_removal_unavailable"
+	IndexQuotaExceeded                Code = "index_quota_exceeded"
+	FieldIndexBusy                    Code = "field_index_busy"
+	// ADR-005 (S18): number formats.
 	NumberFormatExists            Code = "number_format_exists"
 	NumberFormatPrefixRequired    Code = "number_format_prefix_required"
 	NumberFormatInvalid           Code = "number_format_invalid"
@@ -81,6 +94,9 @@ func Codes() []Code {
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, WorkflowDefinitionInvalid, RecordInvalid,
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
+		FilterableFieldNotTopLevel, FilterableFieldTypeChange, SearchableNotAvailable,
+		FieldNotFilterable, FieldNotReady,
+		FilterableFieldRemovalUnavailable, IndexQuotaExceeded, FieldIndexBusy,
 		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone,
 		NumberFormatOverlap, NumberFormatNotFound, NumberSpaceExhausted,
 	}
@@ -147,6 +163,10 @@ type Body struct {
 	Detail   string       `json:"detail"`
 	Instance string       `json:"instance,omitempty"`
 	Errors   []FieldError `json:"errors,omitempty"`
+	// IndexProgress is the whole percentage (0-100) of a field's backfill, on
+	// field_not_ready only. It is read from the registry row and is the only
+	// thing the body says about the field (ADR-006 D6).
+	IndexProgress *int `json:"index_progress,omitempty"`
 }
 
 // Write sends the problem for code, for a 4xx only: a 5xx goes through
@@ -156,6 +176,14 @@ type Body struct {
 // sent as internal_error.
 func (reg *Registry) Write(w http.ResponseWriter, r *http.Request, code Code, errs ...FieldError) {
 	write(w, r, reg.Body(r.Context(), code, errs...))
+}
+
+// WriteNotReady sends the 422 field_not_ready problem with index_progress,
+// the registry's whole percentage for the field (ADR-006 D6).
+func (reg *Registry) WriteNotReady(w http.ResponseWriter, r *http.Request, progress int) {
+	b := reg.Body(r.Context(), FieldNotReady)
+	b.IndexProgress = &progress
+	write(w, r, b)
 }
 
 // WriteError sends the problem for code like Write and, for a 5xx, first

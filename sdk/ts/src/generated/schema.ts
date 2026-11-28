@@ -59,7 +59,7 @@ export interface paths {
         put?: never;
         /**
          * Create an entity type (tenant admin)
-         * @description Creates the entity type and its version 1. Tenant admins only; the check runs before the body is read any further than as well-formed JSON, so every field rule below answers 422 `invalid_definition` to an admin and nothing to anyone else. The body is `{key, name, number_prefix, definition: {schema, fixed_columns, states}}`: `key` matches `^[a-z][a-z0-9_]{1,40}$`, `name` is 1 to 120 characters, `number_prefix` matches `^[A-Z]{2,6}$` and never changes after create, and `definition` is the entity definition without key and number prefix. `schema` is stored as the exact request bytes. A definition that requires a property marked `x-nava-secret` or `writeOnly` (in `required` or `dependentRequired`, at the root or in any subschema that applies there) answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending entry; the marker itself is legal.
+         * @description Creates the entity type and its version 1. Tenant admins only; the check runs before the body is read any further than as well-formed JSON, so every field rule below answers 422 `invalid_definition` to an admin and nothing to anyone else. The body is `{key, name, number_prefix, definition: {schema, fixed_columns, states}}`: `key` matches `^[a-z][a-z0-9_]{1,40}$`, `name` is 1 to 120 characters, `number_prefix` matches `^[A-Z]{2,6}$` and never changes after create, and `definition` is the entity definition without key and number prefix. `schema` is stored as the exact request bytes. A definition that requires a property marked `x-nava-secret` or `writeOnly` (in `required` or `dependentRequired`, at the root or in any subschema that applies there) answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending entry; the marker itself is legal. A misplaced `x-nava-filterable` answers 422 `filterable_field_not_top_level` and any `x-nava-searchable` answers 422 `searchable_not_available`; each names the path in `errors[].pointer` and writes nothing. A definition that flags more than 5 fields on the type, or would pass 50 in the tenant, answers 422 `index_quota_exceeded`, with `errors[].pointer` naming the properties, and writes nothing.
          */
         post: operations["createEntityType"];
         delete?: never;
@@ -99,7 +99,7 @@ export interface paths {
         put?: never;
         /**
          * Publish the next version of an entity type (tenant admin)
-         * @description Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent with or instead of `definition`; alone it changes the mode, publishes no version and answers the current version. Any other value answers 422 `invalid_definition` at `/numbering_mode`. Numbering carries on from the type's counter. `Idempotency-Key` is required.
+         * @description Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. A definition that adds `x-nava-filterable` writes, in the same transaction, one field-index registry row (`backfilling`) and one `field_index.backfill` outbox row per new field. It answers 422 `index_quota_exceeded` above 5 flagged fields on the type or 50 in the tenant, 422 `filterable_field_removal_unavailable` when a flag or a flagged property is removed, 422 `filterable_field_not_top_level`, `filterable_field_type_change` or `searchable_not_available` for the ADR-006 D8 refusals, and 409 `field_index_busy` when a field to flag has an index being removed. Each adds nothing; `errors[].pointer` names the properties. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent with or instead of `definition`; alone it changes the mode, publishes no version and answers the current version. Any other value answers 422 `invalid_definition` at `/numbering_mode`. Numbering carries on from the type's counter. `Idempotency-Key` is required.
          *     `number_format` (ADR-005 §3.2, §3.3) pins a number-format version to the new definition version: `{id, version}`, or `null` for the default numbering. It needs `definition`. **A publish without the field keeps the pinned version**; only an explicit value changes it. The publish takes or reuses the type's numbering epoch in its own transaction: a format already used by the type reuses its epoch; a new one is checked against every earlier epoch of the type, epoch 0 included, and answers 422 `number_format_overlap` (`errors[].rule` is `overlap:<the clashing template>`) when it could render a number the type already issued. A format that is not in the tenant, and another tenant's, give the same 422 `number_format_not_found`.
          *     `If-Match`, when sent, carries the `ETag` of the type's current version (`W/"<current version>"`); a stale one answers 412 `version_conflict` and writes nothing. It also applies to a mode-only call (`numbering_mode` without `definition`): a stale one answers 412 and leaves the numbering mode unchanged.
          */
@@ -380,7 +380,7 @@ export interface paths {
         };
         /**
          * List the records of an entity type the caller may read
-         * @description Returns only the records the entity type's published ACL lets the caller read (no ACL: none), with a `total` counted under the same predicate, so a record the caller cannot read is in neither the page nor `total`. Each item is shaped by the caller's field masks as getRecord's body is. Filters: `filter[<property>]=v` (equal) and `filter[<property>][in]=a,b` on a property mapped to a fixed column or a top-level scalar `data` property. `sort=<property>` or `sort=-<property>` on a property mapped to a fixed column, or on `created_at` or `updated_at`; the default is `-updated_at`; ties break on `id`. There is no sort or range on `data`. Only sorts on `created_at`, `updated_at` and `state` are index-ordered (answered by an index scan, no `Sort`) and inside the list p95 target. A sort on `assignee`, `requester` or `assignment_group` is allowed but is outside that target and may pay for a `Sort`; filtering on those columns stays index-ordered through the access-path indexes. An unknown property, an unsortable property, a value that does not fit the property's type or an unknown `filter[...]` form answers 400 `validation_failed`. A property the ACL's field masks hide from the caller, in a filter or a sort, answers 400 `masked_field` before any query runs. A `cursor` that is malformed, tampered, from another caller or query, or for another sort answers 400 `invalid_cursor`. A list with a filter on a `data` property runs under a 2-second statement timeout, which applies to each statement: a list is a count plus a page, so one can take about 4 seconds in the worst case. Past the timeout the answer is 422 `filter_too_expensive` (narrow the filter). `total` counts at most 1,000 rows under the same predicate as the page. An unknown entity type gives the 404 of getRecord, byte for byte.
+         * @description Returns only the records the entity type's published ACL lets the caller read (no ACL: none), with a `total` counted under the same predicate, so a record the caller cannot read is in neither the page nor `total`. Each item is shaped by the caller's field masks as getRecord's body is. Filters: `filter[<property>]=v` (equal) and `filter[<property>][in]=a,b` on a property mapped to a fixed column or a top-level scalar `data` property. `sort=<property>` or `sort=-<property>` on a property mapped to a fixed column, or on `created_at` or `updated_at`; the default is `-updated_at`; ties break on `id`. There is no sort on `data`. Only sorts on `created_at`, `updated_at` and `state` are index-ordered (answered by an index scan, no `Sort`) and inside the list p95 target. A sort on `assignee`, `requester` or `assignment_group` is allowed but is outside that target and may pay for a `Sort`; filtering on those columns stays index-ordered through the access-path indexes. A filter on a `data` property is checked in this order (ADR-006 D6): masked is 400 `masked_field`; not flagged `x-nava-filterable` in the entity type is 400 `field_not_filterable`; flagged but still being indexed is 422 `field_not_ready`, whose body carries `index_progress` (a whole percentage, 0 to 100) and nothing else about the field; ready is answered from the field's typed side table inside the same statement as the page and `total`. Operators on a ready field: `filter[f]=v` (`eq`) and `filter[f][in]=a,b` (at most 100 values) for every type, and `filter[f][lt]`, `[lte]`, `[gt]`, `[gte]` for number and timestamp fields. A value is parsed as the index stores it (a finite number, `true` or `false`, an RFC 3339 date-time with an offset or a `YYYY-MM-DD` day, a text of at most 2,000 bytes); a value of the wrong type, an operator the type does not take or more than 100 `in` values is 400 `validation_failed`. Text compares bytewise (`COLLATE "C"`). Several filters on one field (a range such as `filter[f][gte]=a&filter[f][lt]=b`) are ANDed inside one `EXISTS`, so on an array field one element must satisfy every bound (`filter[f]=1&filter[f][in]=2,3` matches nothing); the same filter key twice is 400. Until S22 P7-12, the seed fields `incident.priority`, `request.priority` and `change.risk` stay filterable through the legacy scan while unflagged (equality and `in` only). An unknown property, an unsortable property, a value that does not fit the fixed column's type or an unknown `filter[...]` form answers 400 `validation_failed`. A property the ACL's field masks hide from the caller, in a filter or a sort, answers 400 `masked_field` before any query runs. A `cursor` that is malformed, tampered, from another caller or query, or for another sort answers 400 `invalid_cursor`. A list that filters through the legacy scan runs under a 2-second statement timeout, which applies to each statement: a list is a count plus a page, so one can take about 4 seconds in the worst case. Past the timeout the answer is 422 `filter_too_expensive` (narrow the filter). `total` counts at most 1,000 rows under the same predicate as the page. An unknown entity type gives the 404 of getRecord, byte for byte.
          */
         get: operations["listRecords"];
         put?: never;
@@ -787,10 +787,18 @@ export interface components {
             next_cursor: string | null;
             /**
              * Format: int64
-             * @description Records the caller may read that match the filters, not only this page. Exact up to 1,000; when more match, `total` is 1,000 and `total_capped` is true.
+             * @description Records the caller may read that match the filters, not only this page. An integer for `exact` (0-1,000) and `capped` (1,000, when more match); `null` for `unknown`, never 0.
              */
-            total: number;
-            /** @description Present and true when `total` was capped at 1,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise. */
+            total: number | null;
+            /**
+             * @description `exact`: `total` is the full count. `capped`: more than 1,000 match and `total` is 1,000. `unknown`: the count ran out of its time budget; the page is still complete; a client must never render `unknown` as 0.
+             * @enum {string}
+             */
+            total_state: "exact" | "capped" | "unknown";
+            /**
+             * @deprecated
+             * @description Deprecated, use `total_state`. Present and true exactly when `total_state` is `capped` (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
+             */
             total_capped?: boolean;
         };
         Record: {
@@ -1719,7 +1727,28 @@ export interface operations {
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
             404: components["responses"]["ProblemNoInstance"];
-            422: components["responses"]["Problem"];
+            /** @description `filter_too_expensive` (a legacy-scan filter timed out) or `field_not_ready` (the filtered field is still being indexed, with `index_progress`), or the Problem of another 422 code. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @description A URN naming the problem type, `urn:nava:problem:<code>`. */
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        /** @description Fixed text per code; never carries request input. */
+                        detail: string;
+                        /** @description `urn:nava:request:<request id>`, the X-Request-Id of the response. */
+                        instance: string;
+                        /** @description Present on validation_failed. Never carries request input. */
+                        errors?: components["schemas"]["FieldError"][];
+                        index_progress?: number;
+                    };
+                };
+            };
             429: components["responses"]["Problem"];
             500: components["responses"]["Problem"];
             501: components["responses"]["Problem"];

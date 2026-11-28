@@ -13,3 +13,5 @@ export type { ClientOptions, ListOptions, NavaClient, NavaRecord } from "./clien
 export { NavaProblem, VersionConflict, RateLimited } from "./errors.ts";
 export type { FieldError } from "./errors.ts";
 export { SDK_VERSION } from "./version.ts";
+export { describeTotal } from "./total.ts";
+export type { TotalState, TotalView } from "./total.ts";

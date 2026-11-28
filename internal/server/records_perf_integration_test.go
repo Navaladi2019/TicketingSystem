@@ -132,13 +132,18 @@ const perfSchema = `{
   }
 }`
 
-func perfTypeBody() string {
+// perfTypeBodyWith is the ticket type over perfSchema, with extraProps (JSON
+// members, each followed by a comma) added at the start of the schema's
+// properties: empty for P3-36, TICK-747's band fields for the field-index
+// run.
+func perfTypeBodyWith(extraProps string) string {
+	schema := strings.Replace(perfSchema, `"properties": {`, `"properties": {`+extraProps, 1)
 	return fmt.Sprintf(`{"key": "ticket", "name": "Ticket", "number_prefix": "TKT", "definition": {"schema": %s,
   "fixed_columns": {"state": "state", "group": "assignment_group_id", "assignee": "assignee_id", "requester": "requester_id"},
   "states": {"initial": "new", "states": ["new", "in_progress", "on_hold", "closed"],
     "transitions": [{"from": "new", "to": "in_progress"}, {"from": "in_progress", "to": "on_hold"},
       {"from": "on_hold", "to": "in_progress"}, {"from": "new", "to": "closed"}, {"from": "in_progress", "to": "closed"},
-      {"from": "on_hold", "to": "closed"}]}}}`, perfSchema)
+      {"from": "on_hold", "to": "closed"}]}}}`, schema)
 }
 
 // perfACL is the ACL every tenant publishes, the OR-combined shape of P3-01's
@@ -257,15 +262,35 @@ type perfEnv struct {
 	// tokens per role
 	agents, requesters, smallAgents, smallAdmins []string
 	agentGroups                                  map[string][]uuid.UUID
+	// schemaExtra and dataExtra extend the seed (TICK-747): extra schema
+	// properties for perfTypeBodyWith, and extra jsonb_build_object
+	// arguments (each starting with a comma) for perfSeedSQLWith. Empty for
+	// P3-36.
+	schemaExtra, dataExtra string
 	// composed is set once the large tenant's ACL is the S30 composed
 	// document (TICK-944, records_perf_format2_integration_test.go).
 	composed bool
+	// log and opts built h; handlerWith builds another handler from them
+	// (TICK-1048: the same handler with a test-only list hook).
+	log  *slog.Logger
+	opts []server.Option
 	// region is the TICK-1037 region bench state, set by its first scenario
 	// (records_perf_region_integration_test.go).
 	region *perfRegion
 	// pairBase are the tokens whose requests are a paired row's base: their
 	// latencies go to pairLat, not lat (TICK-1037).
 	pairBase map[string]bool
+}
+
+// handlerWith is h with extra options appended, over the same pool, tokens
+// and telemetry.
+func (e *perfEnv) handlerWith(t *testing.T, extra ...server.Option) http.Handler {
+	t.Helper()
+	h, err := server.NewHandler(e.log, e.tel, e.tokens, stubPaths{}, append(slices.Clone(e.opts), extra...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 func perfEnvInt(name string, def int) int {
@@ -320,7 +345,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, pairBase: map[string]bool{}}
+	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, pairBase: map[string]bool{}, log: log, opts: opts}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {
@@ -359,7 +384,7 @@ func serveOn(ctx context.Context, h http.Handler, method, path, token, idem, bod
 // defineType creates the ticket type through the API and publishes perfACL.
 func (e *perfEnv) defineType(t *testing.T, tn uuid.UUID, adminToken string, agents, admins uuid.UUID) {
 	t.Helper()
-	if rec := e.serve(t.Context(), http.MethodPost, "/api/v1/entity-types", adminToken, "perf-type", perfTypeBody()); rec.Code != http.StatusCreated {
+	if rec := e.serve(t.Context(), http.MethodPost, "/api/v1/entity-types", adminToken, "perf-type", perfTypeBodyWith(e.schemaExtra)); rec.Code != http.StatusCreated {
 		t.Fatalf("create type for %s = %d: %s", adminToken, rec.Code, rec.Body)
 	}
 	e.publishPerfACL(t, tn, agents, admins) // format 1 or 2: NAVA_PERF_ACL_FORMAT
@@ -398,7 +423,7 @@ func (e *perfEnv) seed(t *testing.T) {
 	}
 	t.Log("perf: 400 tenants, types and ACLs created through the API")
 	start := time.Now()
-	for _, q := range perfSeedSQL() {
+	for _, q := range perfSeedSQLWith(e.dataExtra) {
 		if _, err := e.super.Exec(ctx, q); err != nil {
 			t.Fatalf("seed %s: %v", firstLine(q), err)
 		}
@@ -407,13 +432,17 @@ func (e *perfEnv) seed(t *testing.T) {
 	e.actors(t)
 }
 
-// perfSeedSQL is bench/records-list/02_seed.sql on the real schema: the same
+// perfSeedSQLWith is bench/records-list/02_seed.sql on the real schema: the same
 // RNG seed, distributions and per-tenant sizes. Each tenant's records all
 // belong to its one entity type (P3-01's query had no type filter, so every
 // list here still runs over the tenant's whole record set). The superuser
 // bypasses RLS; session_replication_role = replica skips the audit commit
 // check and the foreign keys for the bulk load (every id is valid anyway).
-func perfSeedSQL() []string {
+// dataExtra adds jsonb_build_object arguments to each record's data, each
+// starting with a comma (TICK-747; empty for P3-36). They may use x.tn and
+// x.n but call no random(), so the RNG stream and every P3-01 column stay
+// as they are.
+func perfSeedSQLWith(dataExtra string) []string {
 	return []string{
 		`SET max_parallel_workers_per_gather = 0`,
 		`SELECT setseed(0.339)`,
@@ -451,7 +480,7 @@ func perfSeedSQL() []string {
 		            -- 200 sites, each 0.5% of rows. It reuses r9 (category's
 		            -- draw, never a sort or ACL column), so the RNG stream and
 		            -- every other column stay P3-01's.
-		            'site', 's' || floor(x.r9 * 200)::int),
+		            'site', 's' || floor(x.r9 * 200)::int` + dataExtra + `),
 		        0
 		 FROM (
 		     SELECT t.tn, t.tenant_id, t.nusers, d.id AS def, n,

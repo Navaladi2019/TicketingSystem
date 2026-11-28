@@ -1,0 +1,5 @@
+single client Alice filter[priority]=3: p50 217 p95 308 ms
+single client Alice filter[priority]=4: p50 61 p95 75 ms
+single client Alice (none): p50 77 p95 102 ms
+single client admin filter[priority]=3: p50 39 p95 47 ms
+single client admin filter[priority]=1: p50 131 p95 200 ms

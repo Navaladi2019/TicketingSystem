@@ -326,9 +326,11 @@ func TestListRecordsMineKeysetWalkWithConcurrentInserts(t *testing.T) {
 
 // mineACL publishes the requester / assignee / share rule that the list reads
 // as three branches, plus an admin rule.
-func (e *etEnv) mineACL(t *testing.T) {
+func (e *etEnv) mineACL(t *testing.T) { e.mineACLFor(t, "ticket") }
+
+func (e *etEnv) mineACLFor(t *testing.T, entity string) {
 	t.Helper()
-	e.publishACL(t, e.a.id, "ticket",
+	e.publishACL(t, e.a.id, entity,
 		authz.Rule{ID: "mine", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true, Assignee: true, Shared: true}},
 		authz.Rule{ID: "admins", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Users: []uuid.UUID{e.a.admin.PrincipalID}}})
 }
@@ -376,11 +378,11 @@ func TestListRecordsMineTotalIsCappedAtTheCap(t *testing.T) {
 // filter_too_expensive; once released the same request is served.
 func TestListMineDataFilterTimeoutAnswers422(t *testing.T) {
 	e := newETEnvWith(t, server.WithDataFilterTimeout(300*time.Millisecond))
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", incidentTypeBody()); rec.Code != http.StatusCreated {
 		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
 	}
-	e.mineACL(t)
-	e.mustCreateRec(t, "admin-a", "ticket", "k1", fmt.Sprintf(`{"short_description": "x", "requester": %q}`, e.a.user.PrincipalID))
+	e.mineACLFor(t, "incident")
+	e.mustCreateRec(t, "admin-a", "incident", "k1", fmt.Sprintf(`{"short_description": "x", "priority": 1, "requester": %q}`, e.a.user.PrincipalID))
 
 	lock, err := e.super.Begin(t.Context())
 	if err != nil {
@@ -396,7 +398,7 @@ func TestListMineDataFilterTimeoutAnswers422(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	rec, _ := e.list(t, "user-a", "ticket", "filter[short_description]=x")
+	rec, _ := e.list(t, "user-a", "incident", "filter[priority]=1")
 	listCode(t, rec, http.StatusUnprocessableEntity, "filter_too_expensive")
 	if d := time.Since(start); d > 5*time.Second {
 		t.Errorf("timed-out branched list took %s, want about the 300 ms timeout", d)
@@ -405,7 +407,8 @@ func TestListMineDataFilterTimeoutAnswers422(t *testing.T) {
 		t.Fatal(err)
 	}
 	released = true
-	if p := e.mustList(t, "user-a", "ticket", "filter[short_description]=x"); p.Total != 1 {
+	// Exact (TICK-1107): 1 incident at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
+	if p := e.mustList(t, "user-a", "incident", "filter[priority]=1"); p.Total != 1 {
 		t.Errorf("branched list after the timeout: total %d, want 1", p.Total)
 	}
 }

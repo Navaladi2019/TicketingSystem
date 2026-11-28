@@ -1,0 +1,67 @@
+meta {
+  name: S21.19 AC2: list p95 within ADR-006 D13 (as amended by ADR-006-A1)
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:post-response {
+  // The cells run after this request, not before it. They take about 136 s
+  // (8 cells x (2 s warm-up + 15 s)), longer than nava-core's 120 s idle
+  // timeout (NAVA_HTTP_IDLE_TIMEOUT), so a pre-request loop left the pooled
+  // keep-alive socket from S21.18 closed under this request: socket hang up,
+  // no tests, no cells in the evidence (TICK-1195 rerun, 2026-11-27).
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  const secs = Number(N.v('s21_p95_seconds') || 15);
+  const a = Number(N.v('s21_a_n'));
+  const share = (n) => Math.round((Number(N.v(n)) / a) * 10000) / 100 + '%';
+  // The sixth column: the total_state every 200 of the cell must have. Only
+  // the >= 40% ACL cell is pinned (ADR-006-A2 A2-8 (7)): more than a page
+  // matches, so never exact, and its count may run out of budget.
+  const cells = [
+    ['admin', 'admin_a_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, no narrowing ACL', 350, null],
+    ['admin', 'admin_a_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, no narrowing ACL', 150, null],
+    ['admin', 'admin_a_token', 'filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z', share('s21_ac2_admin_n') + ' of the type, below 0.5%, no narrowing ACL', 150, null],
+    ['Alice', 'alice_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, narrowing ACL', 350, null],
+    // p95 recorded, not asserted (null): the 350 ms target moved to S21c
+    // (TICK-1159, owner-approved 2026-11-26); rows and total_state still gate.
+    ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL, p95 recorded only (S21c)', null, ['capped', 'unknown']],
+    ['Alice', 'alice_token', 'filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z', share('s21_ac2_admin_n') + ' of the type, below 0.5%, narrowing ACL', 150, null],
+    ['admin', 'admin_a_token', '', 'no filter (control, reported only)', null, null],
+    ['Alice', 'alice_token', '', 'no filter (control, reported only)', null, null],
+  ];
+  const out = [];
+  for (const [who, v, q, band, limit, allowed] of cells) {
+    const r = await T.cell(v, q, secs);
+    out.push({ who, filter: q || '(none)', band, limit_ms: limit, allowed_states: allowed, ...r });
+    console.log(`S21.19 ${who} ${q || '(none)'}: p50 ${r.p50} p95 ${r.p95} max ${r.max} ms, ${r.n} requests (${r.rps}/s), ${JSON.stringify(r.statuses)}, total_state ${JSON.stringify(r.total_states)}, unknown ${r.unknown_share}%`);
+  }
+  bru.setVar('s21_p95', JSON.stringify(out));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const cells = JSON.parse(bru.getVar('s21_p95'));
+  cells.forEach(c => {
+    test(`${c.who} ${c.filter} (${c.band}): only 200s, ${c.n} requests, p50 ${c.p50} p95 ${c.p95} max ${c.max} ms, from ${c.started_at}`, () => { expect(Object.keys(c.statuses)).to.eql(['200']); expect(c.n).to.be.above(0); });
+    if (c.limit_ms !== null) test(`${c.who} ${c.filter}: p95 ${c.p95} ms <= ${c.limit_ms} ms (p50 ${c.p50}, max ${c.max})`, () => expect(c.p95).to.be.at.most(c.limit_ms));
+    test(`${c.who} ${c.filter}: every 200 meets the total contract; total_state ${JSON.stringify(c.total_states)}, unknown ${c.unknown_share}%`, () => expect(c.broken).to.eql([]));
+    if (c.allowed_states) test(`${c.who} ${c.filter}: every total_state in ${JSON.stringify(c.allowed_states)} (unknown ${c.unknown_share}%)`, () =>
+      expect(Object.keys(c.total_states).filter(s => !c.allowed_states.includes(s))).to.eql([]));
+  });
+}
+
+docs {
+  Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL; 150 ms for every other filter except the >= 40% band with a narrowing ACL (Alice `priority=3`), whose p95 is recorded, not asserted: its 350 ms target moved to S21c (TICK-1159, 2026-11-26). No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored. Every 200 meets the total contract (ADR-006-A2 A2-1); the >= 40% ACL cell's `total_state` is capped or unknown on every response, and every cell reports its share of `unknown` (expected high on a fresh stack, A2-7).
+}

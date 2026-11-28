@@ -112,14 +112,17 @@ func constant(b bool) pnode {
 func (n pnode) isConst() bool { return n.op == pTrue || n.op == pFalse }
 
 // plannedCond is a cmp resolved to a non-empty set: the column must be
-// non-NULL and one of the values. A uuid column has ids, state has strs. self
-// marks a single-id comparison with the caller (caller: self), which renders
-// as an equality.
+// non-NULL and one of the values. A uuid column has ids, state has strs.
+// scalar marks a single-id comparison with the caller, which renders as an
+// equality: caller: self (ADR-010-E1 (b)), and caller: my_groups for a caller
+// with exactly one group (ADR-010-E3 E3-1), so the planner can walk
+// records_list_group in index order. A literal list keeps = ANY even with one
+// value (E3-2 (i)).
 type plannedCond struct {
 	column string
 	ids    []uuid.UUID
 	strs   []string
-	self   bool
+	scalar bool
 }
 
 // plannedPolicy is one policy that grants the op, planned for one principal.
@@ -444,12 +447,13 @@ func planCond(c Cond, p identity.Principal) (plannedCond, condState) {
 		if p.PrincipalID == uuid.Nil {
 			return pc, condEmpty
 		}
-		pc.ids, pc.self = []uuid.UUID{p.PrincipalID}, true
+		pc.ids, pc.scalar = []uuid.UUID{p.PrincipalID}, true
 	case CallerMyGroups:
 		if len(c.Values) > 0 || c.Column != metadata.ColumnAssignmentGroupID {
 			return pc, condInvalid
 		}
-		pc.ids = slices.Clone(p.Groups)
+		// Zero groups stays condEmpty below (E3-2 (ii)); two or more keep = ANY.
+		pc.ids, pc.scalar = slices.Clone(p.Groups), len(p.Groups) == 1
 	default:
 		return pc, condInvalid
 	}
@@ -540,7 +544,7 @@ func (cd plannedCond) sql(c *compiler) string {
 	switch {
 	case cd.column == metadata.ColumnState:
 		return "(" + c.col(cd.column) + " = ANY(" + c.arg(cd.strs) + "::text[]))"
-	case cd.self:
+	case cd.scalar:
 		return c.colEq(cd.column, cd.ids[0])
 	}
 	return "(" + c.col(cd.column) + " IS NOT NULL AND " + c.col(cd.column) + " = ANY(" + c.arg(UUIDTexts(cd.ids)) + "::uuid[]))"

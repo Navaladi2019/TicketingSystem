@@ -3,11 +3,12 @@
 # The TypeScript SDK against the running stack (TICK-829, PLAN-008 P8-24; ADR-007 D10,
 # RFC-017 CI-E8 for the SDK): sdk/ts/test/integration/ through make sdk-integration.
 #   1. tools/seed.sh: tenants A and B (idempotent; run alone, the case needs no earlier case).
-#   2. The Node tests, as Alice, tenant A's admin and Bob with password-grant tokens: list
+#   2. Flag incident.short_description filterable and mark its index ready (see the TODO below).
+#   3. The Node tests, as Alice, tenant A's admin and Bob with password-grant tokens: list
 #      across two pages, get, create replayed with one Idempotency-Key, the 401 retry,
 #      stale version (VersionConflict), invalid body (record_invalid), another tenant's id
 #      (404), a forced 429 on tenant B (RateLimited.retryAfter).
-#   3. In Postgres: the replayed create has exactly one audit_log row (CI-E8).
+#   4. In Postgres: the replayed create has exactly one audit_log row (CI-E8).
 # Serial: it writes records and spends tenant B's rate-limit bucket. Full tier, like the other
 # story cases (s9_records): the daily run on main, ci:full and a manual run (TICK-652); the
 # smoke set stays as TestRealSmokeTier pins it. Needs Node.js, the version in sdk/ts/.nvmrc
@@ -20,6 +21,12 @@ command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js $(cat sdk
 
 sh docs/acceptance/guide/tools/seed.sh || fail "tools/seed.sh failed"
 pass "seeded"
+
+# The tests filter on incident.short_description, which ADR-006 makes a flagged field. Publish the
+# flag as tenant A's admin; the SDK's ensureFilterable() then waits for the real backfill to bring
+# the index to ready.
+NAVA_CORE_URL="http://127.0.0.1:${NAVA_CORE_PORT:-18080}" NAVA_KEYCLOAK_URL="http://127.0.0.1:${KEYCLOAK_PORT:-18081}" make --no-print-directory sdk-flag-fields || fail "flagging incident.short_description failed"
+pass "incident.short_description is flagged filterable"
 
 out=$(mktemp)
 trap 'rm -f "$out"' EXIT

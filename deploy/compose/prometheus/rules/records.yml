@@ -1,0 +1,40 @@
+# Record list alerts (ADR-006-A2 A2-7, TICK-1051). Local dev only, like the
+# scrape config; prometheus.yml loads every file in this directory.
+#
+# nava_records_list_indexed_duration_seconds is, per nava-core
+# (nava.records.list.indexed.duration), a histogram of how long a record list
+# that filters on a field-index field took, labelled acl (open | narrowing),
+# selectivity_band and total_state (exact | capped | unknown). No tenant,
+# field or value label (T01). Legacy-scan lists (fieldindex.LegacyScanFields)
+# are not in this series, so this alert does not see them (D-7A2-6).
+# RecordsListTotalUnknown fires when more than 5 % of those lists over the
+# last hour answered total_state="unknown": the count ran past its count budget
+# (CountBudget in internal/records/store/list.go)
+# and the list returned total null. The page itself was complete.
+# Zero traffic is guarded: no lists, no alert.
+# Tests: ../tests/records_test.yml (lineage.TestAlertRules).
+groups:
+  - name: records
+    rules:
+      - alert: RecordsListTotalUnknown
+        expr: >-
+          (
+            sum(rate(nava_records_list_indexed_duration_seconds_count{total_state="unknown"}[1h]))
+            / sum(rate(nava_records_list_indexed_duration_seconds_count[1h]))
+          ) > 0.05
+          and sum(rate(nava_records_list_indexed_duration_seconds_count[1h])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 5 % of field-index record lists in the last hour returned total_state unknown (ADR-006-A2 A2-7).
+          description: >-
+            unknown means the list's count ran past its count budget, CountBudget in internal/records/store/list.go; the page
+            itself was complete, only the total is null. This is the R-a signal,
+            not an outage. It is expected after a field backfill or bulk edits
+            that leave a poor visibility map on the rfv_* tables, until
+            autovacuum runs. Check pg_stat_user_tables (n_dead_tup,
+            last_autovacuum, last_autoanalyze) for the rfv_* tables. If it
+            persists more than 24 h after autovacuum has run, open the R-a /
+            A1-6 follow-up (owner: Technical Lead, PLAN-007-A1 D-7A1-6). The
+            series carries no tenant, field or value.

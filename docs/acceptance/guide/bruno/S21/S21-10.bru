@@ -1,0 +1,58 @@
+meta {
+  name: S21.10 AC4: records created and edited while indexing
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[due_at]=2026-12-30T12:00:17Z
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  const run = bru.getVar('s21_run');
+  const VC = '2026-12-30T12:00:17Z', VD = '2026-12-30T12:00:18Z';
+  const before = await T.list('admin_a_token', 'filter[due_at]=' + VC);
+  const edit = N.v('s21_edit_ids').split(',');
+  const out = { before: before.status, creates: [], edits: [], moved: null };
+  for (let i = 1; i <= 3; i++) {
+    const r = await T.create('admin_a_token', `s21-${run}-during-${i}`, { short_description: `S21 ${run} created while indexing ${i}`, priority: 4, due_at: VC });
+    out.creates.push({ status: r.status, id: r.data && r.data.id });
+  }
+  for (const id of edit.slice(0, 3)) {
+    const r = await T.patch('admin_a_token', `s21-${run}-edit-during-${id}`, id, 1, { due_at: VC });
+    out.edits.push({ status: r.status, id, version: r.data && r.data.version });
+  }
+  // Created on VC, then moved to VD while indexing: VC must not list it.
+  const m = await T.create('admin_a_token', `s21-${run}-moved`, { short_description: `S21 ${run} moved while indexing`, priority: 4, due_at: VC });
+  const mp = await T.patch('admin_a_token', `s21-${run}-moved-patch`, m.data.id, m.data.version, { due_at: VD });
+  out.moved = { create: m.status, patch: mp.status, id: m.data.id };
+  const p = await T.list('admin_a_token', 'filter[priority]=1');
+  out.priority_after = { status: p.status, index_progress: p.data && p.data.index_progress };
+  bru.setVar('s21_during', JSON.stringify(out));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_not_ready', 422);
+  const o = JSON.parse(bru.getVar('s21_during'));
+  test('due_at was not ready before the writes either', () => expect(o.before).to.eql(422));
+  test('3 creates, each 201', () => expect(o.creates.map(c => c.status)).to.eql([201, 201, 201]));
+  test('3 edits, each 200 at version 2', () => {
+    expect(o.edits.map(e => e.status)).to.eql([200, 200, 200]);
+    expect(o.edits.map(e => e.version)).to.eql([2, 2, 2]);
+  });
+  test('the moved record: created 201, moved 200', () => { expect(o.moved.create).to.eql(201); expect(o.moved.patch).to.eql(200); });
+  test('priority still indexing after the writes', () => expect(o.priority_after.status).to.eql(422));
+}
+
+docs {
+  While both fields are backfilling: 3 creates with `due_at` 2026-12-30T12:00:17Z, 3 seeded records edited to it (ids from tools/expect.sql, priority 4, so criteria 1 and 2 do not move), and one record created on it and then moved to 2026-12-30T12:00:18Z. This request, after all of them, still answers 422: every write happened before the flip. S21.12 finds them.
+}

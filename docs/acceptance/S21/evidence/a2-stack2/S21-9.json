@@ -1,0 +1,53 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[priority]=1",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:field_not_ready",
+      "title": "Field not ready",
+      "status": 422,
+      "code": "field_not_ready",
+      "detail": "The field is flagged x-nava-filterable but its existing values are still being indexed. Retry later; index_progress is the whole percentage done.",
+      "instance": "urn:nava:request:6f1e3dea863a039f0bc0049f3fc751d5",
+      "index_progress": 0
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 422",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code field_not_ready",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    },
+    {
+      "test": "index_progress is a whole number from 0 to 99",
+      "status": "pass"
+    },
+    {
+      "test": "no items and no total",
+      "status": "pass"
+    },
+    {
+      "test": "due_at too: 422 field_not_ready with a whole index_progress",
+      "status": "pass"
+    }
+  ]
+}

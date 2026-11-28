@@ -5,7 +5,8 @@ status: delivered
 normative: docs/architecture/metadata-engine.md
 sources: [docs/architecture/metadata-engine.md, internal/metadata/compile.go, internal/metadata/classify.go, internal/metadata/validate.go, internal/metadata/metadata.go, internal/entitytypes/entitytypes.go, internal/entitytypes/audit.go, internal/entitytypes/secretrequired.go, internal/server/entitytypes.go]
 packages: [internal/metadata, internal/entitytypes]
-adrs: [ADR-001, ADR-004-E5]
+adrs: [ADR-001, ADR-004-E5, ADR-006]
+stories: [S21]
 invariants: [I4, I8]
 operations: [createEntityType, publishEntityTypeVersion, getEntityType, getEntityTypeVersion, listEntityTypes]
 tables: [entity_definitions, entity_definition_versions]
@@ -83,6 +84,34 @@ take). See [core-tenancy](core-tenancy.md).
 
 The mapping is in `internal/server/entitytypes.go`; codes and statuses are in
 `api/errors.yaml`.
+
+## Filterable fields (S21, story branch)
+
+On the `TICK-739/filterable-fields` branch, not yet on `main` (ADR-006 D8, D12;
+TICK-743, TICK-744):
+
+- `metadata.Compile` accepts `"x-nava-filterable": true` only directly on a
+  top-level property, and maps the property's JSON Schema type to a value type
+  (`text`, `num`, `ts`, `bool`; `internal/metadata/filterable.go`). Adding the
+  flag is a Compatible change. `x-nava-searchable` is reserved and refused
+  anywhere.
+- `Store.Create` (version 1) and `Store.Publish` write, inside the audited
+  version write, one `record_index_fields` row (`backfilling`, progress 0,
+  `requested_version` = the version) and one `field_index.backfill` outbox row
+  per newly flagged field (`internal/entitytypes/fieldindex.go`). A tenant
+  advisory lock around the quota count stops two concurrent publishes from both
+  passing. This is the only `nava_app` path that writes the registry. See
+  [Field index](../database/field-index.md) and
+  [Field-index backfill](../workflows/field-index-backfill.md).
+
+| Error | Where | HTTP |
+|---|---|---|
+| `*metadata.RefusalError` `filterable_field_not_top_level` | `metadata.Compile` | `422` |
+| `*metadata.RefusalError` `searchable_not_available` | `metadata.Compile` | `422` |
+| `*metadata.RefusalError` `filterable_field_type_change` | `metadata.Classify` | `422` |
+| `*metadata.RefusalError` `filterable_field_removal_unavailable` (removal is S22) | `entitytypes.Store.Publish` | `422` |
+| `*entitytypes.IndexQuotaError` (5 per type, 50 per tenant) | `entitytypes.Store.Create`, `Store.Publish` | `422 index_quota_exceeded` |
+| `*entitytypes.FieldIndexBusyError` (the field's index is being removed) | `entitytypes.Store.Publish` | `409 field_index_busy` |
 
 ## Notes
 

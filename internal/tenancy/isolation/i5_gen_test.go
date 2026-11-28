@@ -690,10 +690,26 @@ func TestI5GeneratorCoversTheRiskyShapes(t *testing.T) {
 			has["group share of the decoy group (a user's id)"] = has["group share of the decoy group (a user's id)"] || (s.Kind == "group" && s.ID == w.DecoyGroup)
 		}
 	}
+	dropMyGroups := i5Mutants()["drop_my_groups"]
 	for _, c := range cases {
 		for _, p := range c.Principals {
 			has["caller with no id"] = has["caller with no id"] || p.PrincipalID == uuid.Nil
 			has["caller in no group"] = has["caller in no group"] || len(p.Groups) == 0
+			// ADR-010-E3 E3-4 (3): set per (policy, principal) pair the
+			// agreement tests compare, only when that pair's compiled read
+			// reaches a my_groups condition: dropping it changes the SQL.
+			if c.Policy == nil || len(p.Groups) == 0 {
+				continue
+			}
+			sql, _ := authz.CompileRead(c.Policy, p, "r", 2)
+			if dropped, _ := dropMyGroups(c.Policy, p, "r", 2); dropped == sql {
+				continue
+			}
+			if len(p.Groups) == 1 {
+				has["my_groups with a one-group caller"] = true
+			} else {
+				has["my_groups with a multi-group caller"] = true
+			}
 		}
 		if c.Policy == nil {
 			has["nil policy"] = true
@@ -716,7 +732,8 @@ func TestI5GeneratorCoversTheRiskyShapes(t *testing.T) {
 	for _, want := range []string{"nil requester", "nil assignee", "nil group", "share of an outsider",
 		"user share of the decoy principal (a group's id)", "group share of the decoy group (a user's id)",
 		"caller with no id", "caller in no group", "nil policy", "groups subject", "users subject", "requester subject",
-		"assignee subject", "shared subject", "write-only rule", "self", "my_groups", "malformed cond"} {
+		"assignee subject", "shared subject", "write-only rule", "self", "my_groups", "malformed cond",
+		"my_groups with a one-group caller", "my_groups with a multi-group caller"} {
 		if !has[want] {
 			t.Errorf("the default seed's run has no %s", want)
 		}

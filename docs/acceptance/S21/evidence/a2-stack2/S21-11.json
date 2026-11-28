@@ -1,0 +1,61 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[priority]=1&limit=1",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "created_at": "2026-10-30T23:03:00Z",
+          "data": {
+            "description": "S21 internal note 57",
+            "due_at": "2026-06-21T15:41:00Z",
+            "priority": 1,
+            "requester": "01a2028c-3826-7288-8035-30ea83ae34db",
+            "short_description": "S21 seed 57",
+            "state": "closed"
+          },
+          "id": "37c8ec7e-86f3-c0b5-464c-ac4f0b3c0dae",
+          "number": "INC0000057",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-31T23:03:00Z",
+          "version": 1
+        }
+      ],
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTMxIDIzOjAzOjAwKzAwIiwiaSI6IjM3YzhlYzdlLTg2ZjMtYzBiNS00NjRjLWFjNGYwYjNjMGRhZSJ9.Q2aX-AehooD5On-_T5AEeyADVKZhN-yRYiIMIaP_WuQ",
+      "total": 1000,
+      "total_capped": true,
+      "total_state": "capped"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "both fields ready after 1085 s and 73 polls",
+      "status": "pass"
+    },
+    {
+      "test": "every answer while indexing was 422 with a whole index_progress from 0 to 99",
+      "status": "pass"
+    },
+    {
+      "test": "index_progress never goes back, and once ready a field stays ready",
+      "status": "pass"
+    }
+  ]
+}

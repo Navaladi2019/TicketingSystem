@@ -1,0 +1,4 @@
+### 2026-11-19T09:01:19Z postgres:16.10, commit c29c3361
+### host: MINGW64_NT-10.0-26300; docker 29.9.2
+### docker VM: 16 CPUs, 26260877312 bytes, kernel 5.15.167.4-microsoft-standard-WSL2
+### other containers at start: nava-s18-nava-worker-1 nava-s18-nava-relay-1 nava-s18-nava-core-1 nava-s18-temporal-1 nava-s18-nava-groupsync-1 nava-s18-nava-onboard-1 nava-s18-temporal-server-1 nava-s18-nava-purge-1 nava-s18-keycloak-1 nava-s18-otel-collector-1 nava-s18-pgbouncer-1 nava-s18-postgres-1 nava-nava-core-1 nava-nava-worker-1 nava-temporal-ui-1 nava-nava-relay-1 nava-temporal-1 nava-nava-purge-1 nava-nava-groupsync-1 nava-nava-onboard-1 nava-temporal-server-1 nava-pgbouncer-1 nava-keycloak-1 nava-postgres-1 nava-prometheus-1 nava-openobserve-1 nava-otel-collector-1 buildx_buildkit_nava-ci0 multica-backend-1 multica-frontend-1 multica-postgres-1 

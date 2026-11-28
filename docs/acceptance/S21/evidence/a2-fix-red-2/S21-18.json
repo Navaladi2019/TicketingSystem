@@ -1,0 +1,793 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[priority]=1&limit=200",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "created_at": "2026-10-30T23:59:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 1",
+            "state": "new"
+          },
+          "id": "a5a64906-b3be-de12-5e1f-5ad6bb753630",
+          "number": "INC0000001",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:59:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:58:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 2",
+            "state": "new"
+          },
+          "id": "6083daf2-5eb5-a673-3cc6-e7c035359df4",
+          "number": "INC0000002",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:58:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:57:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 3",
+            "state": "new"
+          },
+          "id": "dcb65e33-0ed7-b245-3210-098e188196f8",
+          "number": "INC0000003",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:57:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:56:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 4",
+            "state": "new"
+          },
+          "id": "d72990df-d633-b5e5-5162-ca7f1fa23c8b",
+          "number": "INC0000004",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:56:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:55:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 5",
+            "state": "new"
+          },
+          "id": "53316359-db2b-02fb-139b-b3850ee72ab0",
+          "number": "INC0000005",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:55:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:54:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 6",
+            "state": "new"
+          },
+          "id": "9524fd09-7705-33b5-c73d-fb70d89b8c59",
+          "number": "INC0000006",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:54:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:53:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 7",
+            "state": "new"
+          },
+          "id": "93c4379b-0596-2906-1098-ca6ef4de7320",
+          "number": "INC0000007",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:52:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 8",
+            "state": "new"
+          },
+          "id": "aa039d5a-4c9a-eb21-bee9-f0fcc3895a79",
+          "number": "INC0000008",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:52:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:51:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 9",
+            "state": "new"
+          },
+          "id": "d536643b-f975-e429-d306-3ca5cce86536",
+          "number": "INC0000009",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:51:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:50:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 10",
+            "state": "new"
+          },
+          "id": "7bca9b2a-2130-15f4-e1a1-4424e2ecf80e",
+          "number": "INC0000010",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:50:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:49:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 11",
+            "state": "new"
+          },
+          "id": "b98e636a-406c-497d-c62c-d14e7f4acf49",
+          "number": "INC0000011",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:49:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:48:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 12",
+            "state": "new"
+          },
+          "id": "a94bef89-56dc-0bdb-32c7-51acb3d0a622",
+          "number": "INC0000012",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:48:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:47:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 13",
+            "state": "new"
+          },
+          "id": "82c57c3d-af26-0eea-cc0b-7ae05946836f",
+          "number": "INC0000013",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:47:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:46:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 14",
+            "state": "new"
+          },
+          "id": "ac71d143-5677-0e66-5d68-007fe03c6d31",
+          "number": "INC0000014",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:46:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:45:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 15",
+            "state": "new"
+          },
+          "id": "774dba79-e67b-15af-ea7b-4c09d8590f10",
+          "number": "INC0000015",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:45:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:44:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 16",
+            "state": "new"
+          },
+          "id": "f2e7f164-06ee-2a32-d811-3d75eaee3db2",
+          "number": "INC0000016",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:44:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:43:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 17",
+            "state": "new"
+          },
+          "id": "3f6c8d82-bf81-b118-803e-78a1c2f4e94d",
+          "number": "INC0000017",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:43:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:42:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 18",
+            "state": "new"
+          },
+          "id": "9d3f49bf-9526-69fa-74d6-ee94181a2314",
+          "number": "INC0000018",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:42:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:41:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 19",
+            "state": "new"
+          },
+          "id": "203d9b5f-5c20-d7a9-9a44-eb28a0548f8e",
+          "number": "INC0000019",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:41:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:40:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 20",
+            "state": "new"
+          },
+          "id": "b027714c-4339-cb30-df6f-97676cae029c",
+          "number": "INC0000020",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:40:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:39:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 21",
+            "state": "new"
+          },
+          "id": "e2d9f7d6-6d16-6a87-0800-f83cbc6e1c0d",
+          "number": "INC0000021",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:39:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:38:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 22",
+            "state": "new"
+          },
+          "id": "d5d63ba8-bdbd-3e7b-48ca-ee951a75f110",
+          "number": "INC0000022",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:38:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:37:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 23",
+            "state": "new"
+          },
+          "id": "95057e6b-bd68-24c0-3436-592794a1bdd5",
+          "number": "INC0000023",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:37:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:36:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 24",
+            "state": "new"
+          },
+          "id": "54652dfd-2157-0776-3497-001b624c3be7",
+          "number": "INC0000024",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:36:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:35:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 25",
+            "state": "new"
+          },
+          "id": "e07fcf66-3a8d-3b00-3366-0f3421360bfe",
+          "number": "INC0000025",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:35:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:34:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 26",
+            "state": "new"
+          },
+          "id": "87fa02e8-4f33-a092-cb99-b43699868c67",
+          "number": "INC0000026",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:34:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:33:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 27",
+            "state": "new"
+          },
+          "id": "9c56fd58-f3db-cbc7-aceb-8d652c42675e",
+          "number": "INC0000027",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:32:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 28",
+            "state": "new"
+          },
+          "id": "7b81aff9-5314-b0c9-0b95-c7c792c051bb",
+          "number": "INC0000028",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:32:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:31:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 29",
+            "state": "new"
+          },
+          "id": "5bdf6c2f-b096-b9e0-b50f-18e6df69a6c6",
+          "number": "INC0000029",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:31:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:30:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 30",
+            "state": "new"
+          },
+          "id": "5b5633fa-d87e-c18c-8363-04df9ed30a96",
+          "number": "INC0000030",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:30:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:29:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 31",
+            "state": "new"
+          },
+          "id": "0b81b6f6-a4b3-4553-f2b0-1ecbf222bced",
+          "number": "INC0000031",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:29:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:28:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 32",
+            "state": "new"
+          },
+          "id": "5695b0a1-302e-082f-eea2-d78bc41489a7",
+          "number": "INC0000032",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:28:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:27:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 33",
+            "state": "new"
+          },
+          "id": "16e24690-82d8-03c3-b0f3-f2a1b291d57d",
+          "number": "INC0000033",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:27:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:26:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 34",
+            "state": "new"
+          },
+          "id": "69527096-eece-83bd-7d66-0ef55814c322",
+          "number": "INC0000034",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:26:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:25:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 35",
+            "state": "new"
+          },
+          "id": "0a0becd2-c089-39af-007f-419fd5e07b30",
+          "number": "INC0000035",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:25:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:24:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 36",
+            "state": "new"
+          },
+          "id": "21e7543a-29bb-f242-2ae0-8660acbabe01",
+          "number": "INC0000036",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:24:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:23:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 37",
+            "state": "new"
+          },
+          "id": "ab2326f3-b6b6-abed-dfe1-695180754066",
+          "number": "INC0000037",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:23:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:22:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 38",
+            "state": "new"
+          },
+          "id": "939fe498-0cc7-d962-9d21-0bed6c073202",
+          "number": "INC0000038",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:22:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:21:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 39",
+            "state": "new"
+          },
+          "id": "ff822c29-786c-2371-0d31-2a9cd247f984",
+          "number": "INC0000039",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:21:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:20:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 40",
+            "state": "new"
+          },
+          "id": "f2609793-9d19-16d5-432d-5d36bc198cfe",
+          "number": "INC0000040",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:20:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:19:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 41",
+            "state": "new"
+          },
+          "id": "806f68f1-0446-1e63-7bc5-d407880b7395",
+          "number": "INC0000041",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:19:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:18:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 42",
+            "state": "new"
+          },
+          "id": "c03526ec-203e-ea77-2969-38afe2f59ee3",
+          "number": "INC0000042",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:18:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:17:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 43",
+            "state": "new"
+          },
+          "id": "684ea458-9f7c-b6e1-3450-3a16aee27c3b",
+          "number": "INC0000043",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:17:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:16:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 44",
+            "state": "new"
+          },
+          "id": "2635d32f-d5b7-cbe5-81a6-5242a6f37a1e",
+          "number": "INC0000044",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:16:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:15:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 45",
+            "state": "new"
+          },
+          "id": "39b2f2a8-b6c1-f92b-85a5-7b83bf431304",
+          "number": "INC0000045",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:15:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:14:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 46",
+            "state": "new"
+          },
+          "id": "4e0494f1-a80f-544c-d231-259570bd4137",
+          "number": "INC0000046",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:14:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:13:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 47",
+            "state": "new"
+          },
+          "id": "d8d408e9-5483-d87c-5db0-87e48b50e3df",
+          "number": "INC0000047",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:12:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 48",
+            "state": "new"
+          },
+          "id": "3ab77003-4bf5-ad53-e853-53ef5bb3eeaa",
+          "number": "INC0000048",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:12:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:11:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 49",
+            "state": "new"
+          },
+          "id": "cd2b5176-e91e-7139-76c5-f52f2b105b72",
+          "number": "INC0000049",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:11:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:10:00Z",
+          "data": {
+            "priority": 1,
+            "requester": "01a201d4-2d56-797f-90bc-ab94b6686290",
+            "short_description": "S21 tenant B 50",
+            "state": "new"
+          },
+          "id": "f9ce89fe-4309-7249-ff5f-50eeefd3ee24",
+          "number": "INC0000050",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:10:00Z",
+          "version": 1
+        }
+      ],
+      "next_cursor": null,
+      "total": 50,
+      "total_state": "exact"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "Bob lists tenant B's 50 priority-1 incidents",
+      "status": "pass"
+    },
+    {
+      "test": "none of them is in tenant A's priority-1 list",
+      "status": "pass"
+    },
+    {
+      "test": "tenant A's list is the tenant A scan, short of the all-tenant scan by tenant B's records",
+      "status": "pass"
+    }
+  ]
+}

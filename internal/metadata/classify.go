@@ -62,12 +62,19 @@ func (c *classifier) result() (Compat, []string) {
 // adding or removing x-nava-unique, making a property required or optional,
 // removing a state or transition, changing the initial state, widening
 // maxLength, dropping a pattern, and changing any unknown keyword.
+//
+// Adding or removing x-nava-filterable is Compatible (ADR-006 D8). Changing
+// the value type of a property prev flags returns *RefusalError with
+// RefusalFilterableTypeChange, whatever the class of the rest of the change.
 func Classify(prev, next *Compiled) (Compat, []string, error) {
 	if prev == nil || next == nil {
 		return Breaking, nil, ErrNilCompiled
 	}
 	if prev.key != next.key {
 		return Breaking, nil, ErrKeyMismatch
+	}
+	if err := classifyFilterable(prev, next); err != nil {
+		return Breaking, nil, err
 	}
 	var c classifier
 	if prev.numberPrefix != next.numberPrefix {
@@ -169,8 +176,9 @@ func classifyProperty(name string, prev, next map[string]any, c *classifier) {
 		pv, inPrev := prev[kw]
 		nv, inNext := next[kw]
 		switch {
-		case annotation(kw) || kw == UniqueKeyword:
-			// annotations never break; x-nava-unique compared above by value
+		case annotation(kw) || kw == UniqueKeyword || kw == FilterableKeyword:
+			// annotations never break; x-nava-unique compared above by value;
+			// x-nava-filterable is configuration (ADR-006 D8)
 		case kw == "default":
 			switch {
 			case !inPrev:

@@ -1,0 +1,37 @@
+meta {
+  name: S21.18 AC5: tenant B's priority-1 records never match tenant A's filter
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[priority]=1&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  await T.fresh('bob_token');
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  const mine = b.items.map(i => i.id);
+  test(`Bob lists tenant B's ${N.v('s21_b_p1_n')} priority-1 incidents`, () => { expect(b.total).to.eql(Number(N.v('s21_b_p1_n'))); expect(mine.length).to.eql(b.total); expect(b.total_state).to.eql('exact'); });
+  const a = new Set(JSON.parse(bru.getVar('s21_ids_p1_admin')));
+  test("none of them is in tenant A's priority-1 list", () => expect(mine.filter(id => a.has(id)).length).to.eql(0));
+  test("tenant A's list is the tenant A scan, short of the all-tenant scan by tenant B's records", () =>
+    expect(a.size).to.eql(Number(N.v('s21_p1_all_tenants_n')) - Number(N.v('s21_b_p1_n'))));
+}
+
+docs {
+  Tenant B has 50 incidents, all priority 1. Bob's own list finds them (B flagged nothing, so `priority` is still the seed type's legacy scan there, PLAN-007 D-7-6), and none of them is among the admin's S21.13 rows: tenant A's count is the tenant A scan, not the all-tenant one.
+}

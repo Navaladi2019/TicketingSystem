@@ -66,7 +66,7 @@ func TestRemoval(t *testing.T) {
 }
 
 func TestUnlistedAddition(t *testing.T) {
-	reportAll(t, unlisted(realInventory(t).items(), realSurface(t)))
+	reportAll(t, unlisted(realInventory(t).listed(), realSurface(t)))
 }
 
 func TestFixturesStillAccepted(t *testing.T) {
@@ -75,6 +75,29 @@ func TestFixturesStillAccepted(t *testing.T) {
 
 func TestDeprecatedStillAccepted(t *testing.T) {
 	reportAll(t, deprecatedStillAccepted(realInventory(t), realFixtures(t)))
+}
+
+// A reserved item is still refused by Compile: its fixture under
+// testdata/fixtures/reserved names the item and is not accepted. The day
+// Compile accepts it, it is surface and moves into the inventory proper.
+func TestReservedStillRefused(t *testing.T) {
+	t.Parallel()
+	for _, r := range realInventory(t).Reserved {
+		_, name, _ := strings.Cut(r.Item, "/")
+		path := filepath.Join(fixturesDir, "reserved", name+".json")
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("reserved %s: %v; add %s", r.Item, err, path)
+			continue
+		}
+		f := typedefFixture("reserved/"+name+".json", b)
+		if !f.uses[r.Item] {
+			t.Errorf("reserved fixture %s does not use %s", f.name, r.Item)
+		}
+		if f.problem == "" {
+			t.Errorf("reserved %s is accepted by Compile; move it into inventory.json (%s)", r.Item, r.Reason)
+		}
+	}
 }
 
 // No script surface exists in v1 (PLAN-009 D-9-6). The day the schema gains a
@@ -192,7 +215,7 @@ func TestUnlistedReportsNewStepType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := unlisted(realInventory(t).items(), src)
+	got := unlisted(realInventory(t).listed(), src)
 	for _, want := range []string{
 		"unlisted: workflow.step_types/noop; add it to inventory.json",
 		"unlisted: workflow.step_fields/noop.next; add it to inventory.json",
@@ -213,7 +236,7 @@ func TestUnlistedReportsScriptStepType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := unlisted(realInventory(t).items(), src); !slices.Contains(got, "unlisted: script/script; add it to inventory.json") {
+	if got := unlisted(realInventory(t).listed(), src); !slices.Contains(got, "unlisted: script/script; add it to inventory.json") {
 		t.Errorf("unlisted = %q, want the script surface", got)
 	}
 }
@@ -232,7 +255,7 @@ func TestUnlistedReportsNewExtensionAndField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inv := realInventory(t).items()
+	inv := realInventory(t).listed()
 	got := unlisted(inv, s)
 	if !slices.Contains(got, "unlisted: type_definition.extensions/x-nava-pii; add it to inventory.json") {
 		t.Errorf("unlisted = %q, want x-nava-pii", got)

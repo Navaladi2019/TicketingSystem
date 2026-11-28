@@ -52,7 +52,7 @@ func withRawQuery(next http.Handler) http.Handler {
 }
 
 var (
-	filterKeyRE = regexp.MustCompile(`^filter\[([^\[\]]+)\](\[in\])?$`)
+	filterKeyRE = regexp.MustCompile(`^filter\[([^\[\]]+)\](?:\[(in|eq|lt|lte|gt|gte)\])?$`)
 	numberRE    = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 )
 
@@ -62,9 +62,20 @@ type listFilter struct {
 	prop   string
 	col    string
 	values []any
-	// absentMatches is set for a data filter when one value equals the current
-	// version's default for prop: a record that leaves prop out is served with
-	// that default, so it matches too (I5). A present null does not.
+	// op is eq, in, lt, lte, gt or gte. A fixed column takes eq and in only.
+	op string
+	// raws are the unparsed values of a data filter: how they parse depends on
+	// the registry row of the field, so resolve parses them (ADR-006 D6).
+	raws []string
+	// idx is the ready registry row a data filter reads through its side
+	// table; nil for a legacy-scan filter and for a fixed column.
+	idx *pipeline.IndexField
+	// legacy is a data filter answered by the JSONB scan (fieldindex.LegacyScanFields).
+	legacy bool
+	// absentMatches is set for a legacy-scan data filter when one value equals
+	// the current version's default for prop: a record that leaves prop out is
+	// served with that default, so it matches too (I5). A present null does
+	// not. Set by resolveFilters.
 	absentMatches bool
 }
 
@@ -98,7 +109,6 @@ func listInvalid(pointer, rule string) *problemError {
 func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*listPlan, *problemError) {
 	types, fixed := def.PropertyTypes(), def.FixedColumns()
 	secret := def.SecretProperties()
-	defaults := def.ApplyDefaults(nil)
 	pl := &listPlan{sortProp: defaultSortField, sortCol: defaultSortField, desc: true, limit: defaultRecordsLimit}
 	if limit != nil {
 		pl.limit = *limit
@@ -116,12 +126,16 @@ func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*
 		if m == nil {
 			return nil, listInvalid("/filter", "form")
 		}
-		prop, isIn := m[1], m[2] != ""
+		prop, op := m[1], m[2]
+		if op == "" {
+			op = "eq"
+		}
+		isIn := op == "in"
 		ptr := "/filter/" + escapePointer(prop)
 		if len(q[k]) != 1 {
 			return nil, listInvalid(ptr, "repeated")
 		}
-		typ, known := types[prop]
+		_, known := types[prop]
 		if !known || slices.Contains(secret, prop) {
 			return nil, listInvalid(ptr, "unknown")
 		}
@@ -132,16 +146,22 @@ func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*
 				return nil, listInvalid(ptr, "too_many")
 			}
 		}
-		f := listFilter{prop: prop, col: fixed[prop]}
+		f := listFilter{prop: prop, col: fixed[prop], op: op}
+		if f.col == "" {
+			// A data filter is parsed once the registry says how (resolve).
+			f.raws = raws
+			pl.filters = append(pl.filters, f)
+			continue
+		}
+		if op != "eq" && op != "in" {
+			return nil, listInvalid(ptr, "operator")
+		}
 		for _, raw := range raws {
-			v, ok := filterValue(f.col, prop, typ, raw)
+			v, ok := filterValue(f.col, prop, "", raw)
 			if !ok {
 				return nil, listInvalid(ptr, "type")
 			}
 			f.values = append(f.values, v)
-			if d, has := defaults[prop]; has && f.col == "" && sameFilterValue(v, d) {
-				f.absentMatches = true
-			}
 		}
 		pl.filters = append(pl.filters, f)
 	}
@@ -250,9 +270,26 @@ func (pl *listPlan) where(base int) (string, []any) {
 		args = append(args, v)
 		return "$" + strconv.Itoa(base+len(args)) + "::" + cast
 	}
+	done := map[uuid.UUID]bool{}
 	for _, f := range pl.filters {
 		switch f.col {
 		case "":
+			if f.idx != nil {
+				// One EXISTS per field: every comparison of the field is ANDed
+				// inside it, so one element must satisfy them all (ADR-006 D7).
+				if done[f.idx.ID] {
+					continue
+				}
+				done[f.idx.ID] = true
+				var group []listFilter
+				for _, g := range pl.filters {
+					if g.col == "" && g.idx != nil && g.idx.ID == f.idx.ID {
+						group = append(group, g)
+					}
+				}
+				terms = append(terms, existsTerm(group, next))
+				continue
+			}
 			ors := make([]string, 0, len(f.values))
 			for _, v := range f.values {
 				arg := next(v, "jsonb")
@@ -278,9 +315,16 @@ func (pl *listPlan) where(base int) (string, []any) {
 	return strings.Join(terms, " AND "), args
 }
 
-// hasDataFilter reports whether any filter reads the data document.
-func (pl *listPlan) hasDataFilter() bool {
-	return slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.col == "" })
+// hasLegacyScan reports whether any filter reads the data document through
+// the JSONB scan: only such a list has no index to lean on and runs under the
+// data-filter timeout (PLAN-007 D-7-6).
+func (pl *listPlan) hasLegacyScan() bool {
+	return slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.legacy })
+}
+
+// hasIndexFilter reports whether any filter reads a typed side table.
+func (pl *listPlan) hasIndexFilter() bool {
+	return slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.idx != nil })
 }
 
 func textsOf(vs []any) []string {
@@ -439,6 +483,10 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if err := checkPlan(pol, p, pl); err != nil {
 			return err
 		}
+		// ADR-006 D6 after masked: flagged, ready, then the values.
+		if err := h.resolveFilters(ctx, tx, p.TenantID, defID, req.Entity, def, pl); err != nil {
+			return err
+		}
 		var pos *listPos
 		if req.Params.Cursor != nil {
 			raw, err := h.cursors.Decode(claims, *req.Params.Cursor)
@@ -493,15 +541,25 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))
 		}
-		lq.DataFilter, lq.Timeout = pl.hasDataFilter(), h.dataFilterTimeout
+		lq.DataFilter, lq.Timeout = pl.hasLegacyScan(), h.dataFilterTimeout
+		lq.BudgetCount = pl.hasIndexFilter() || pl.hasLegacyScan()
+		lq.CountDelay, lq.SkipCount = h.countDelay, h.skipCount
+		started := time.Now()
 		page, err := pipeline.List(ctx, tx, lq)
+		if err == nil && pl.hasIndexFilter() {
+			narrowing := read.Branches != nil || len(read.Args) > 0 || strings.Contains(read.Where, "r.")
+			h.observeIndexedList(ctx, time.Since(started), page, narrowing)
+		}
 		if err != nil {
 			if errors.Is(err, pipeline.ErrStatementTimeout) {
 				return &problemError{problem.FilterTooExpensive, nil, err}
 			}
 			return err
 		}
-		out = api.RecordList{Items: make([]api.Record, 0, min(len(page.Records), pl.limit)), Total: page.Total}
+		out = api.RecordList{Items: make([]api.Record, 0, min(len(page.Records), pl.limit)), TotalState: api.RecordListTotalState(page.TotalState)}
+		if page.TotalState != pipeline.TotalUnknown {
+			out.Total = &page.Total
+		}
 		if page.TotalCapped {
 			out.TotalCapped = &page.TotalCapped
 		}

@@ -182,6 +182,42 @@ func registerInterpreter(w worker.Registry, acts *interp.Activities) {
 	acts.Register(w)
 }
 """,
+    "internal/fieldindex/coordinator.go": """package fieldindex
+
+const (
+	// CoordinatorWorkflowType runs one tenant's backfills.
+	CoordinatorWorkflowType = "field_index.coordinator"
+	BackfillWorkflowType    = "field_index.backfill.run"
+)
+""",
+    "internal/fieldindex/backfill/workflow.go": """package backfill
+
+func RegisterWorkflow(r worker.WorkflowRegistry) {
+	r.RegisterWorkflowWithOptions(coordinatorRun, workflow.RegisterOptions{Name: fieldindex.CoordinatorWorkflowType})
+	r.RegisterWorkflowWithOptions(backfillRun, workflow.RegisterOptions{Name: fieldindex.BackfillWorkflowType})
+}
+""",
+    "internal/fieldindex/backfill/activities.go": """package backfill
+
+const (
+	BarrierActivity = "field_index.Barrier"
+	BatchActivity   = "field_index.Batch"
+)
+
+func (a *Activities) Register(r worker.ActivityRegistry) {
+	r.RegisterActivityWithOptions(a.Barrier, activity.RegisterOptions{Name: BarrierActivity})
+	r.RegisterActivityWithOptions(a.Batch, activity.RegisterOptions{Name: BatchActivity})
+}
+""",
+    "cmd/nava-worker/fieldindex.go": """package main
+
+func registerFieldIndex(w worker.Registry, acts *backfill.Activities, workflows bool) {
+	if workflows {
+		backfill.RegisterWorkflow(w)
+	}
+	acts.Register(w)
+}
+""",
     "internal/workflow/interp/activities.go": """package interp
 
 func (a *Activities) Register(r worker.ActivityRegistry) {
@@ -465,9 +501,26 @@ class TestReferences(Base):
         r = build.GoRegistry(self.root)
         r.load()
         self.assertEqual(r.kinds, {"nava.interpreter": "EnqueueStart", "audit.seal": "EnqueueSeal"})
-        self.assertEqual(r.workflows(), ["audit.seal", "nava.interpreter"])
-        self.assertEqual(r.activities(), ["audit.seal.Reschedule", "audit.seal.Seal", "nava.interpreter.ApplyStep",
-                                          "nava.interpreter.NextStep", "nava.workflow_ref.Close"])
+        self.assertEqual(r.workflows(), ["audit.seal", "field_index.backfill.run", "field_index.coordinator", "nava.interpreter"])
+        self.assertEqual(r.activities(), ["audit.seal.Reschedule", "audit.seal.Seal", "field_index.Barrier", "field_index.Batch",
+                                          "nava.interpreter.ApplyStep", "nava.interpreter.NextStep", "nava.workflow_ref.Close"])
+
+    def test_go_registry_refuses_an_unlisted_non_kind_workflow(self):
+        # A registered type that is neither a kind nor in GO_NON_KIND_WORKFLOWS.
+        write(self.root, "internal/fieldindex/backfill/workflow.go",
+              "package backfill\n\nconst sneakyType = \"field_index.sneaky\"\n\n"
+              "func RegisterWorkflow(r worker.WorkflowRegistry) {\n"
+              "\tr.RegisterWorkflowWithOptions(coordinatorRun, workflow.RegisterOptions{Name: fieldindex.CoordinatorWorkflowType})\n"
+              "\tr.RegisterWorkflowWithOptions(backfillRun, workflow.RegisterOptions{Name: fieldindex.BackfillWorkflowType})\n"
+              "\tr.RegisterWorkflowWithOptions(sneakyRun, workflow.RegisterOptions{Name: sneakyType})\n}\n")
+        self.fails("workflow type 'field_index.sneaky' is registered but is not a kind")
+
+    def test_go_registry_refuses_a_stale_non_kind_entry(self):
+        # A GO_NON_KIND_WORKFLOWS type that no RegisterWorkflow registers.
+        write(self.root, "internal/fieldindex/backfill/workflow.go",
+              "package backfill\n\nfunc RegisterWorkflow(r worker.WorkflowRegistry) {\n"
+              "\tr.RegisterWorkflowWithOptions(coordinatorRun, workflow.RegisterOptions{Name: fieldindex.CoordinatorWorkflowType})\n}\n")
+        self.fails("GO_NON_KIND_WORKFLOWS lists 'field_index.backfill.run', which no RegisterWorkflow registers")
 
     def test_go_registry_resolves_front_matter(self):
         page(self.root, "workflows/a.md", "A", "workflows",

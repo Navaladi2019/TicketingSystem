@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,9 +28,11 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -41,6 +45,7 @@ type listPage struct {
 	Next   *string   `json:"next_cursor"`
 	Total  int       `json:"total"`
 	Capped *bool     `json:"total_capped"`
+	State  string    `json:"total_state"`
 }
 
 func (e *etEnv) list(t *testing.T, token, entity, query string) (*httptest.ResponseRecorder, listPage) {
@@ -64,6 +69,35 @@ func (e *etEnv) mustList(t *testing.T, token, entity, query string) listPage {
 	rec, p := e.list(t, token, entity, query)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list %s ?%s = %d: %s", token, query, rec.Code, rec.Body)
+	}
+	return p
+}
+
+// cappedOrUnknown asserts a budgeted (data-filter) list over more than
+// totalCap matches: a full page of items with a next cursor, and either the
+// capped total (1000, total_capped true, "capped") or, when the count missed
+// CountBudget on a loaded runner, "total": null with "unknown" and no
+// total_capped (ADR-006-A2 A2-5). Anything else fails, an exact total
+// included. Pair it with a budget-free check that the cap holds (TICK-1107).
+func (e *etEnv) cappedOrUnknown(t *testing.T, name, token, entity, query string, items int) listPage {
+	t.Helper()
+	rec, p := e.list(t, token, entity, query)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%s = %d: %s", name, rec.Code, rec.Body)
+	}
+	var raw struct {
+		Total json.RawMessage `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	switch {
+	case len(p.Items) != items || p.Next == nil:
+		t.Errorf("%s: %d items, next %v; want a full page of %d and a next cursor", name, len(p.Items), p.Next, items)
+	case p.State == "capped" && p.Total == totalCap && p.Capped != nil && *p.Capped:
+	case p.State == "unknown" && string(raw.Total) == "null" && p.Capped == nil:
+	default:
+		t.Errorf("%s: total %s capped %v state %q; want %d capped, or null unknown", name, raw.Total, p.Capped, p.State, totalCap)
 	}
 	return p
 }
@@ -173,11 +207,13 @@ func TestListRecordsUnderTheACL(t *testing.T) {
 // nor total, whatever the paging and the filter.
 func TestListRecordsHidesUnreadableFromPageAndTotal(t *testing.T) {
 	e := newRecEnv(t)
+	e.flagField(t, e.a.id, "ticket", "short_description", "text", "ready", 100)
 	secret := e.mustCreateRec(t, "admin-a", "ticket", "u1", `{"short_description": "private"}`)
 	mine := e.mustCreateRec(t, "admin-a", "ticket", "u2", fmt.Sprintf(`{"short_description": "mine", "requester": %q}`, e.a.user.PrincipalID))
 	e.publishACL(t, e.a.id, "ticket",
 		authz.Rule{ID: "req", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true}},
 		authz.Rule{ID: "admins", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Users: []uuid.UUID{e.a.admin.PrincipalID}}})
+	// Exact (TICK-1107): 2 records; only limit=1 counts, and it has no data filter; the count runs over that few rows, far inside CountBudget.
 	for _, q := range []string{"", "limit=1", "filter[state]=new", "sort=updated_at", "filter[short_description]=private"} {
 		p := e.mustList(t, "user-a", "ticket", q)
 		if ids(p.Items)[secret.ID] {
@@ -225,9 +261,12 @@ func TestListRecordsErrors(t *testing.T) {
 	for _, q := range []string{"filter[cost]=1", "sort=assignee", "filter[triage][in]=a,b"} {
 		m.mustList(t, "lookalike-a", "job", q)
 	}
-	for _, q := range []string{"filter[nope]=1", "sort=nope", "sort=cost", "filter[cost][gt]=1", "filter[assignee]=x", "filter[token]=x"} {
+	for _, q := range []string{"filter[nope]=1", "sort=nope", "sort=cost", "filter[cost][like]=1", "filter[triage][gt]=a", "filter[assignee]=x", "filter[token]=x"} {
 		rec, _ := m.list(t, "lookalike-a", "job", q)
 		listCode(t, rec, http.StatusBadRequest, "validation_failed")
+		if strings.Contains(rec.Body.String(), "total_state") {
+			t.Errorf("%s: a problem body carries total_state: %s", q, rec.Body)
+		}
 	}
 	for _, q := range []string{"limit=0", "limit=201"} {
 		rec, _ := m.list(t, "lookalike-a", "job", q)
@@ -283,13 +322,13 @@ func TestListRecordsCrossTenant(t *testing.T) {
 	b := e.mustCreateRec(t, "admin-b", "ticket", "x2", `{"short_description": "b"}`)
 	b2 := e.mustCreateRec(t, "admin-b", "ticket", "x3", `{"short_description": "b2"}`)
 	p := e.mustList(t, "admin-a", "ticket", "")
-	if len(p.Items) != 1 || p.Items[0].ID != a.ID || p.Total != 1 {
+	if len(p.Items) != 1 || p.Items[0].ID != a.ID || p.Total != 1 || p.State != "exact" {
 		t.Errorf("tenant A list: %d items, total %d", len(p.Items), p.Total)
 	}
 	p = e.mustList(t, "admin-b", "ticket", "")
 	wantIDs(t, "tenant B", p.Items, b, b2)
-	if p.Total != 2 {
-		t.Errorf("tenant B total = %d, want 2", p.Total)
+	if p.Total != 2 || p.State != "exact" {
+		t.Errorf("tenant B total = %d state %q, want 2 exact", p.Total, p.State)
 	}
 	// An entity type only tenant B has is a 404 for tenant A.
 	sameResponse(t, "B's type seen by A",
@@ -476,10 +515,10 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The count is exact up to 1,000 and capped past it (D25).
-	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 800 || p.Capped != nil {
+	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 800 || p.Capped != nil || p.State != "exact" {
 		t.Errorf("800 matches: total %d capped %v, want exact 800 and no total_capped", p.Total, p.Capped)
 	}
-	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 1000 || p.Capped == nil || !*p.Capped {
+	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 1000 || p.Capped == nil || !*p.Capped || p.State != "capped" {
 		t.Errorf("2400 matches: total %d capped %v, want 1000 and total_capped true", p.Total, p.Capped)
 	}
 	for _, sort := range []string{"", "updated_at", "-updated_at", "created_at", "-created_at", "state", "-state"} {
@@ -573,6 +612,7 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 	e.serviceDeskACL(t, "ticket")
 	user := e.a.user.PrincipalID
 	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: e.pool}, pipeline.SystemClock{})
+	field := e.flagField(t, e.a.id, "ticket", "short_description", "text", "ready", 100)
 	const rows = totalCap + 5
 	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
 		for i := range rows {
@@ -598,25 +638,81 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 	if req.Total != 3 || req.Capped != nil {
 		t.Errorf("requester: total %d capped %v; want exact 3, absent", req.Total, req.Capped)
 	}
-	// A data-filter list is capped the same way.
-	if p := e.mustList(t, "admin-a", "ticket", "filter[short_description]=bulk&limit=1"); p.Total != totalCap || p.Capped == nil {
-		t.Errorf("data-filter list: total %d capped %v; want capped %d", p.Total, p.Capped, totalCap)
+	// A data-filter list is capped the same way, but over HTTP its count runs
+	// under CountBudget (140 ms, ADR-006-A2 A2-2): capping 1,005 rows under the
+	// ACL can miss it on a loaded runner (TICK-1107), and then the total is
+	// "unknown" with "total": null (A2-5). Accept exactly those two answers,
+	// each with a full page; the cap itself is proven below without a budget.
+	e.cappedOrUnknown(t, "data-filter list", "admin-a", "ticket", "filter[short_description]=bulk&limit=1", 1)
+
+	// The deterministic cap check (TICK-1107): the handler's own predicates, the
+	// published ACL (authz.ReadPredicate) and the list's EXISTS for the ready
+	// field (ExistsTermForTest), through store.List with DataFilter set and no
+	// count budget. The admin's count stops at the cap; the requester's is exact.
+	acl := authz.ACL{Policies: authz.PolicyStore{}}
+	for _, c := range []struct {
+		name   string
+		p      identity.Principal
+		total  int64
+		capped bool
+		state  store.TotalState
+	}{
+		{"admin", e.a.admin, totalCap, true, store.TotalCapped},
+		{"requester", e.a.user, 3, false, store.TotalExact},
+	} {
+		if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+			pol, err := acl.Policy(t.Context(), tx, c.p, "ticket")
+			if err != nil {
+				return err
+			}
+			var def uuid.UUID
+			if err := tx.QueryRow(t.Context(), "SELECT id FROM entity_definitions WHERE key = 'ticket'").Scan(&def); err != nil {
+				return err
+			}
+			branches, readSQL, readArgs := authz.ReadPredicate(pol, c.p, "r", 2)
+			filt, filtArgs := server.ExistsTermForTest(fieldindex.TypeText, field, "eq", "bulk")
+			base := 2 + len(readArgs)
+			filt = sgPlaceholder.ReplaceAllStringFunc(filt, func(m string) string {
+				n, _ := strconv.Atoi(m[1:])
+				return "$" + strconv.Itoa(base+n)
+			})
+			q := store.ListQuery{
+				TenantID: e.a.id, DefinitionID: def, Where: filt, Args: append(slices.Clone(readArgs), filtArgs...),
+				Branches: branches, SortColumn: "updated_at", Desc: true, Limit: 2,
+				DataFilter: true, BudgetCount: false,
+			}
+			if branches == nil {
+				q.Where = readSQL + " AND " + filt
+			}
+			page, err := store.List(t.Context(), tx, q)
+			if err != nil {
+				return err
+			}
+			if page.Total != c.total || page.TotalCapped != c.capped || page.TotalState != c.state {
+				t.Errorf("store.List %s: total %d capped %v state %q; want %d %v %q",
+					c.name, page.Total, page.TotalCapped, page.TotalState, c.total, c.capped, c.state)
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("store.List %s: %v", c.name, err)
+		}
 	}
 }
 
 // covers: listRecords 422
 //
-// TICK-647: a data-filter list runs under a statement timeout. A superuser
+// TICK-647: a legacy-scan list (a seed type's unflagged allow-listed field,
+// PLAN-007 D-7-6) runs under a statement timeout. A superuser
 // connection holds ACCESS EXCLUSIVE on records, so the list blocks until the
 // timeout (a lock wait counts) and answers 422 filter_too_expensive. A list
 // without a data filter is not bound by it, and the pool serves the next
 // request once the lock is released.
 func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 	e := newETEnvWith(t)
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", incidentTypeBody()); rec.Code != http.StatusCreated {
 		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
 	}
-	e.mustCreateRec(t, "admin-a", "ticket", "k1", `{"short_description": "x"}`)
+	e.mustCreateRec(t, "admin-a", "incident", "k1", `{"short_description": "x", "priority": 1}`)
 	// One connection: the setting the timed-out request leaves on it shows below.
 	e.onOneConn(t, server.WithDataFilterTimeout(300*time.Millisecond))
 	baseline := e.showStatementTimeout(t)
@@ -635,7 +731,7 @@ func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	rec, _ := e.list(t, "admin-a", "ticket", "filter[short_description]=x")
+	rec, _ := e.list(t, "admin-a", "incident", "filter[priority]=1")
 	listCode(t, rec, http.StatusUnprocessableEntity, "filter_too_expensive")
 	if d := time.Since(start); d > 5*time.Second {
 		t.Errorf("timed-out list took %s, want about the 300 ms timeout", d)
@@ -652,7 +748,7 @@ func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 	}
 	released = true
 
-	p := e.mustList(t, "admin-a", "ticket", "filter[short_description]=x")
+	p := e.mustList(t, "admin-a", "incident", "filter[priority]=1")
 	if p.Total != 1 {
 		t.Errorf("list after the timeout: total %d, want 1", p.Total)
 	}
@@ -735,25 +831,38 @@ func TestListCancelWithoutDataFilterIsNotFilterTooExpensive(t *testing.T) {
 	}
 }
 
+// incidentTypeBody is the seed type key incident with an integer priority, the
+// shape of the seed template: priority is on fieldindex.LegacyScanFields, so
+// an unflagged filter on it still takes the JSONB scan and its timeout.
+func incidentTypeBody() string {
+	return strings.Replace(recTypeBody("incident", "INC"), `"requester": {"type": "string", "format": "uuid"}`,
+		`"requester": {"type": "string", "format": "uuid"}, "priority": {"type": "integer"}`, 1)
+}
+
 // I5 (TICK-912): a filter on a field's default matches the records that leave
 // the field out (v1 rows, v2 rows), not the ones holding null; items and
-// total are what GET shows.
+// total are what GET shows. The type is the seed key incident: priority is on
+// fieldindex.LegacyScanFields, so the unflagged filter takes the JSONB scan
+// (ADR-006 D6); a ticket field would be 400 field_not_filterable.
 func TestListDataFilterOnDefaultMatchesAbsentField(t *testing.T) {
 	e := newRecEnv(t)
-	absent := e.mustCreateRec(t, "admin-a", "ticket", "df1", `{"short_description": "v1 absent"}`)
-	nulled := e.mustCreateRec(t, "admin-a", "ticket", "df2", `{"short_description": "v1 null"}`)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "df-type", recTypeBody("incident", "INC")); rec.Code != http.StatusCreated {
+		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
+	}
+	absent := e.mustCreateRec(t, "admin-a", "incident", "df1", `{"short_description": "v1 absent"}`)
+	nulled := e.mustCreateRec(t, "admin-a", "incident", "df2", `{"short_description": "v1 null"}`)
 	v2 := strings.Replace(recSchema, `"requester": {"type": "string", "format": "uuid"}`,
 		`"requester": {"type": "string", "format": "uuid"},
     "priority": {"type": "string", "enum": ["low", "high"], "default": "low"}`, 1)
 	body := fmt.Sprintf(`{"definition": {"schema": %s,
   "fixed_columns": {"state": "state", "group": "assignment_group_id", "assignee": "assignee_id", "requester": "requester_id"},
   "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}`, v2)
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types/ticket/versions", "admin-a", "df-pub", body); rec.Code != http.StatusCreated {
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types/incident/versions", "admin-a", "df-pub", body); rec.Code != http.StatusCreated {
 		t.Fatalf("publish v2 = %d: %s", rec.Code, rec.Body)
 	}
-	absent2 := e.mustCreateRec(t, "admin-a", "ticket", "df3", `{"short_description": "v2 absent"}`)
-	explicit := e.mustCreateRec(t, "admin-a", "ticket", "df4", `{"short_description": "v2 low", "priority": "low"}`)
-	high := e.mustCreateRec(t, "admin-a", "ticket", "df5", `{"short_description": "v2 high", "priority": "high"}`)
+	absent2 := e.mustCreateRec(t, "admin-a", "incident", "df3", `{"short_description": "v2 absent"}`)
+	explicit := e.mustCreateRec(t, "admin-a", "incident", "df4", `{"short_description": "v2 low", "priority": "low"}`)
+	high := e.mustCreateRec(t, "admin-a", "incident", "df5", `{"short_description": "v2 high", "priority": "high"}`)
 	// The API refuses a null for an enum, so the row is written directly,
 	// with the audit trigger off for this one transaction.
 	tx, err := e.super.Begin(t.Context())
@@ -774,23 +883,23 @@ func TestListDataFilterOnDefaultMatchesAbsentField(t *testing.T) {
 	}
 	// What GET shows for each record decides what the filter must return.
 	for _, r := range []recBody{absent, absent2, explicit} {
-		rec := e.do(t, http.MethodGet, "/api/v1/records/ticket/"+r.ID, "admin-a", "", "")
+		rec := e.do(t, http.MethodGet, "/api/v1/records/incident/"+r.ID, "admin-a", "", "")
 		var g recBody
 		if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil || g.Data["priority"] != "low" {
 			t.Fatalf("GET %s = %d %s, want priority low", r.ID, rec.Code, rec.Body)
 		}
 	}
-	p := e.mustList(t, "admin-a", "ticket", "filter[priority]=low&limit=200")
+	p := e.mustList(t, "admin-a", "incident", "filter[priority]=low&limit=200")
 	wantIDs(t, "priority=low", p.Items, absent, absent2, explicit)
 	if p.Total != 3 {
 		t.Errorf("total = %d, want 3", p.Total)
 	}
-	p = e.mustList(t, "admin-a", "ticket", "filter[priority][in]=high,low&limit=200")
+	p = e.mustList(t, "admin-a", "incident", "filter[priority][in]=high,low&limit=200")
 	wantIDs(t, "priority in", p.Items, absent, absent2, explicit, high)
 	if p.Total != 4 {
 		t.Errorf("in total = %d, want 4", p.Total)
 	}
-	p = e.mustList(t, "admin-a", "ticket", "filter[priority]=high&limit=200")
+	p = e.mustList(t, "admin-a", "incident", "filter[priority]=high&limit=200")
 	wantIDs(t, "priority=high", p.Items, high)
 	if p.Total != 1 {
 		t.Errorf("high total = %d, want 1", p.Total)

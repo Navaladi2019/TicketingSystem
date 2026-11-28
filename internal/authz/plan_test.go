@@ -602,3 +602,75 @@ func TestExplainShowsLegacyIDBesideName(t *testing.T) {
 		t.Fatalf("Explain = %+v, want a policy name and RuleID Agents-1", ex)
 	}
 }
+
+// ADR-010-E3 E3-1/E3-2 (TICK-1084 AC 1): caller: my_groups renders scalar for
+// exactly one group, = ANY for two or more, and fail-closed (false, no
+// argument) for zero. A literal one-value list on the same column keeps
+// = ANY (E3-2 (i)), and the group-share test is unchanged (E3-2 (iii)).
+func TestCompileReadMyGroupsScalarOnlyForOneGroup(t *testing.T) {
+	t.Parallel()
+	pol := ptWhen(t, inMyGroup())
+	const scalar = "((r.assignment_group_id IS NOT NULL AND r.assignment_group_id = $3::uuid))"
+	const array = "((r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($3::uuid[])))"
+	cases := []struct {
+		name     string
+		groups   []uuid.UUID
+		wantSQL  string
+		wantArgs []any
+	}{
+		{"one group", []uuid.UUID{ptGA()}, scalar, []any{ptGA()}},
+		{"two groups", []uuid.UUID{ptGA(), ptGB()}, array, []any{UUIDTexts([]uuid.UUID{ptGA(), ptGB()})}},
+		{"three groups", []uuid.UUID{ptGA(), ptGB(), ptGC()}, array, []any{UUIDTexts([]uuid.UUID{ptGA(), ptGB(), ptGC()})}},
+		{"zero groups", nil, "false", nil},
+	}
+	for _, c := range cases {
+		p := identity.Principal{PrincipalID: ptCaller(), Groups: c.groups}
+		sql, args := CompileRead(pol, p, "r", 2)
+		if sql != c.wantSQL {
+			t.Errorf("%s: CompileRead = %s, want %s", c.name, sql, c.wantSQL)
+		}
+		if fmt.Sprint(args) != fmt.Sprint(c.wantArgs) || len(args) != len(c.wantArgs) {
+			t.Errorf("%s: args = %#v, want %#v", c.name, args, c.wantArgs)
+		}
+		if len(args) == 1 && len(c.groups) == 1 {
+			if _, ok := args[0].(uuid.UUID); !ok {
+				t.Errorf("%s: arg is %T, want uuid.UUID", c.name, args[0])
+			}
+		}
+		for _, r := range []Row{{AssignmentGroupID: ptRef(ptGA())}, {AssignmentGroupID: ptRef(ptOther())}, {}} {
+			want := r.AssignmentGroupID != nil && slices.Contains(c.groups, *r.AssignmentGroupID)
+			if _, _, ok := Allows(pol, p, "read", r); ok != want {
+				t.Errorf("%s: Allows(group %v) = %v, want %v", c.name, r.AssignmentGroupID, ok, want)
+			}
+		}
+	}
+
+	// A literal one-value list is not a caller: my_groups condition.
+	lit := ptWhen(t, fmt.Sprintf(`{"cmp":{"column":"assignment_group_id","op":"in","values":[%q]}}`, ptGA()))
+	if sql, _ := CompileRead(lit, identity.Principal{PrincipalID: ptCaller(), Groups: []uuid.UUID{ptGA()}}, "r", 2); sql != array {
+		t.Errorf("literal one-value list: CompileRead = %s, want %s", sql, array)
+	}
+
+	// The one-group scalar is referenced, not re-bound, from a later branch's
+	// NOT: one argument for every occurrence.
+	two := ptWhen(t, `{"any":[`+inMyGroup()+`,`+isRequester()+`]}`)
+	branches, args := ReadBranches(two, identity.Principal{PrincipalID: ptCaller(), Groups: []uuid.UUID{ptGA()}}, "r", 2)
+	joined := strings.Join(branches, "\n")
+	if strings.Contains(joined, "ANY(") && !strings.Contains(joined, "acl_share") {
+		t.Errorf("one-group branches still use = ANY: %v", branches)
+	}
+	if n := strings.Count(joined, "r.assignment_group_id = $3::uuid"); n < 2 && len(branches) > 1 {
+		t.Errorf("branches %v: want the scalar $3 in the positive and the NOT occurrence", branches)
+	}
+	for _, a := range args {
+		if s, ok := a.([]string); ok && slices.Equal(s, []string{ptGA().String()}) {
+			t.Errorf("one-group args %v still bind a one-element []string", args)
+		}
+	}
+
+	// The group-share test keeps = ANY for a one-group caller.
+	sh := ptWhen(t, `{"shared":true}`)
+	if sql, _ := CompileRead(sh, identity.Principal{PrincipalID: ptCaller(), Groups: []uuid.UUID{ptGA()}}, "r", 2); !strings.Contains(sql, "acl_share.principal_id = ANY(") {
+		t.Errorf("shared: CompileRead = %s, want the group share as = ANY", sql)
+	}
+}

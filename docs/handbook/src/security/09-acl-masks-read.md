@@ -93,6 +93,19 @@ each row and its red mutation is in
 | Masks on the audit list and the audit export | `TestAuditEntriesMaskFieldsHiddenFromTheReader`, `TestExportAppliesTheCallersFieldMasks` ([Audit export and erasure](08-exports-erasure.md)) |
 | A ticket's org unit: never in history; hidden in audit entries when the requester is masked | `TestRecordHistoryNeverShowsTheOrgUnit`, `TestAuditListMasksOrgUnitWithTheRequester`, `TestAuditListOrgUnitMaskIsPerTenant`, `TestAddOrgUnitMasks` |
 
+### S21: filters on flagged data fields (story branch)
+
+On
+`TICK-739/filterable-fields`, not yet on `main`, the masked check still runs
+first, then the field-index registry: not flagged is `400
+field_not_filterable`, indexing is `422 field_not_ready` with only the whole
+percentage, and a ready field compiles to an `EXISTS` inside the same ACL
+statement, so a hidden record never reaches the page or `total`. S21 attack
+row 2 (CI-8) shows a value present only in a record the agent cannot read
+gives the same bytes as a value nobody has, for every operator, and a masked
+field is the same `400 masked_field` in every registry state
+(`TestListFilterRowACLOracle`; [S21 attack paths](../stories/s21.md#attack-paths)).
+
 ### S30: composed rules (TICK-943)
 
 The S30 rows are in

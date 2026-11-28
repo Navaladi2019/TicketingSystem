@@ -1288,6 +1288,25 @@
     },
     {
       "file": "20261127100000_audit_log_nul_escaped_gate_drop.sql",
+      "on_main": true,
+      "commit": "d310312f",
+      "date": "2026-11-27",
+      "pr": "941",
+      "story": "",
+      "tickets": [
+        "TICK-1170"
+      ]
+    },
+    {
+      "file": "20261127110000_field_index_tables.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261127110100_field_index_trigger.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261127110200_field_index_sync_read_committed.sql",
       "on_main": false
     }
   ]
