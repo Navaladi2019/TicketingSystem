@@ -280,9 +280,10 @@ def _ind(text, n=2):
     return "\n".join(pad + l if l.strip() else "" for l in text.strip("\n").split("\n"))
 
 
-def req(name, method, url, *, desc="", headers=None, body=None, form=None, tests="", pre="", auth=None):
+def req(name, method, url, *, desc="", headers=None, body=None, form=None, tests="", pre="", post="", auth=None):
     """auth: None (no Authorization), or a variable name holding a bearer token.
-    tests and pre are JavaScript; tests get N (lib/nava.js) loaded."""
+    tests, pre and post are JavaScript; tests get N (lib/nava.js) loaded. post
+    is a script:post-response block: it runs after the response, before tests."""
     h = {}
     if auth:
         h["Authorization"] = "Bearer {{%s}}" % auth
@@ -290,7 +291,8 @@ def req(name, method, url, *, desc="", headers=None, body=None, form=None, tests
     if body is not None:
         h["Content-Type"] = h.get("Content-Type", "application/json")
     return {"name": name, "method": method.lower(), "url": url, "desc": desc, "headers": h,
-            "body": body, "form": form, "tests": tests.strip("\n"), "pre": pre.strip("\n")}
+            "body": body, "form": form, "tests": tests.strip("\n"), "pre": pre.strip("\n"),
+            "post": post.strip("\n")}
 
 
 def token(name, user, pwd, store, *, client="nava-web", scope="openid", desc="", extra=""):
@@ -4230,7 +4232,12 @@ test("none of them is in tenant A's priority-1 list", () => expect(mine.filter(i
 test("tenant A's list is the tenant A scan, short of the all-tenant scan by tenant B's records", () =>
   expect(a.size).to.eql(Number(N.v('s21_p1_all_tenants_n')) - Number(N.v('s21_b_p1_n'))));"""),
             req("S21.19 AC2: list p95 within ADR-006 D13 (as amended by ADR-006-A1)", "GET", inc + "?limit=1", auth="admin_a_token",
-                pre=S21_T + """
+                post="""// The cells run after this request, not before it. They take about 136 s
+// (8 cells x (2 s warm-up + 15 s)), longer than nava-core's 120 s idle
+// timeout (NAVA_HTTP_IDLE_TIMEOUT), so a pre-request loop left the pooled
+// keep-alive socket from S21.18 closed under this request: socket hang up,
+// no tests, no cells in the evidence (TICK-1195 rerun, 2026-11-27).
+""" + S21_T + """
 const secs = Number(N.v('s21_p95_seconds') || 15);
 const a = Number(N.v('s21_a_n'));
 const share = (n) => Math.round((Number(N.v(n)) / a) * 10000) / 100 + '%';
@@ -5712,6 +5719,8 @@ def _bru_request(r, seq):
         out.append("body:form-urlencoded {\n" + "".join(f"  {k}: {v}\n" for k, v in r["form"]) + "}\n")
     if r["pre"]:
         out.append("script:pre-request {\n" + _ind(r["pre"]) + "\n}\n")
+    if r.get("post"):
+        out.append("script:post-response {\n" + _ind(r["post"]) + "\n}\n")
     if r["tests"]:
         out.append("tests {\n" + _ind(LOAD + "\n" + r["tests"]) + "\n}\n")
     if r["desc"]:

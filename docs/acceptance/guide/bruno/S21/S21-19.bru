@@ -14,7 +14,12 @@ headers {
   Authorization: Bearer {{admin_a_token}}
 }
 
-script:pre-request {
+script:post-response {
+  // The cells run after this request, not before it. They take about 136 s
+  // (8 cells x (2 s warm-up + 15 s)), longer than nava-core's 120 s idle
+  // timeout (NAVA_HTTP_IDLE_TIMEOUT), so a pre-request loop left the pooled
+  // keep-alive socket from S21.18 closed under this request: socket hang up,
+  // no tests, no cells in the evidence (TICK-1195 rerun, 2026-11-27).
   const N = require('./lib/nava')({ bru });
   const T = require('./lib/s21')(N, bru);
   const secs = Number(N.v('s21_p95_seconds') || 15);

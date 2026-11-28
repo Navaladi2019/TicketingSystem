@@ -1,0 +1,1105 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[priority]=1",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-30T20:04:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-10-06T14:27:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 236",
+            "state": "closed"
+          },
+          "id": "7baf541d-0af2-bab8-0328-ccc6a20b874c",
+          "number": "INC0000236",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-31T20:04:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-30T03:05:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-10T20:43:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 1255",
+            "state": "new"
+          },
+          "id": "78a32d49-aace-caab-2a3e-b43604ed7813",
+          "number": "INC0001255",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-31T03:05:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-28T22:34:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-09-13T06:54:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 2966",
+            "state": "closed"
+          },
+          "id": "50dd5f23-f034-c07a-bbc7-c462ff0b2ef5",
+          "number": "INC0002966",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T22:34:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-26T21:38:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-02-15T22:44:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 5902",
+            "state": "in_progress"
+          },
+          "id": "78197796-5048-f9c1-7c46-66a3e6e6c04e",
+          "number": "INC0005902",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-10-27T21:38:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-25T17:44:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-10-10T15:57:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 7576",
+            "state": "new"
+          },
+          "id": "0a67fe7d-b927-0598-fd23-6cf882867309",
+          "number": "INC0007576",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-26T17:44:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-25T07:01:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-24T03:43:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 8219",
+            "state": "closed"
+          },
+          "id": "907368fd-ef19-1b98-4bc4-3993fc339bd4",
+          "number": "INC0008219",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-26T07:01:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-22T06:08:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-07-09T06:12:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 12592",
+            "state": "new"
+          },
+          "id": "83e95104-6af2-29f3-8a45-b653c6be4762",
+          "number": "INC0012592",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-23T06:08:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-20T02:47:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-08-10T17:29:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 15673",
+            "state": "resolved"
+          },
+          "id": "230318e6-09fc-5122-9dbe-07295c4facf7",
+          "number": "INC0015673",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-21T02:47:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-19T13:37:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-02-27T20:51:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 16463",
+            "state": "resolved"
+          },
+          "id": "e7f58449-e93b-73f4-8ebe-bb16f9e8d398",
+          "number": "INC0016463",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-20T13:37:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-17T20:52:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-05-30T22:21:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 18908",
+            "state": "new"
+          },
+          "id": "3d1d1cbb-54f9-448d-49b8-269bd73b6cc0",
+          "number": "INC0018908",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-18T20:52:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-17T04:52:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-05-19T14:07:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 19868",
+            "state": "new"
+          },
+          "id": "45416475-1e70-0879-e1cb-0256ea56c912",
+          "number": "INC0019868",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-18T04:52:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-10T05:59:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-11-19T16:50:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 29881",
+            "state": "in_progress"
+          },
+          "id": "803a94b3-2130-2648-a105-7e75674ae39a",
+          "number": "INC0029881",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-10-11T05:59:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-06T15:21:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-03-01T06:14:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 35079",
+            "state": "new"
+          },
+          "id": "e0d7257b-4b1d-7c2f-cd18-5806bba29b29",
+          "number": "INC0035079",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-07T15:21:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-05T17:05:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-07-02T05:52:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 36415",
+            "state": "closed"
+          },
+          "id": "8da266dc-8b48-e8ab-11c6-2ee62133f823",
+          "number": "INC0036415",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-06T17:05:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-04T18:25:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-09-14T01:05:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 37775",
+            "state": "new"
+          },
+          "id": "ec07850c-a027-a601-8ac8-3def6e55aa88",
+          "number": "INC0037775",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-05T18:25:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-10-03T22:39:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-08-22T11:52:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 38961",
+            "state": "resolved"
+          },
+          "id": "8b1c4fb6-361b-0199-0e9f-845b08a0e985",
+          "number": "INC0038961",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-04T22:39:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-29T00:01:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-09-10T12:34:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 46079",
+            "state": "new"
+          },
+          "id": "444b8b13-3d94-91e7-68e8-482929d79406",
+          "number": "INC0046079",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-09-30T00:01:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-28T21:37:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-02-20T00:14:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 46223",
+            "state": "in_progress"
+          },
+          "id": "6c0a3abf-a0d2-25ef-d7b2-b5fb6ba05147",
+          "number": "INC0046223",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-09-29T21:37:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-27T14:11:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-11-04T19:42:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 48109",
+            "state": "resolved"
+          },
+          "id": "30828c6f-28eb-39c8-63a7-234a8a009e09",
+          "number": "INC0048109",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-09-28T14:11:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-26T23:59:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-07-11T10:22:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 48961",
+            "state": "closed"
+          },
+          "id": "5d393c8d-68d8-0c9f-82ae-3f70872c943c",
+          "number": "INC0048961",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-09-27T23:59:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-26T07:57:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-01-23T14:57:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 49923",
+            "state": "resolved"
+          },
+          "id": "fa191a11-f142-2cd0-d29c-9a9d45f3a1d9",
+          "number": "INC0049923",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-09-27T07:57:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-26T03:08:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-04-13T15:37:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 50212",
+            "state": "in_progress"
+          },
+          "id": "7e2aa092-44d5-fb85-70b9-809b5b150161",
+          "number": "INC0050212",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-09-27T03:08:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-25T16:53:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-06-25T04:34:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 50827",
+            "state": "in_progress"
+          },
+          "id": "b8bbd113-0f69-6212-fa79-f8fea993c975",
+          "number": "INC0050827",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-09-26T16:53:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-25T14:59:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-25T23:20:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 50941",
+            "state": "closed"
+          },
+          "id": "7e2c7e80-fddb-c036-7721-5dd3f518bbc1",
+          "number": "INC0050941",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-09-26T14:59:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-24T20:18:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-04-10T22:21:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 52062",
+            "state": "resolved"
+          },
+          "id": "df1497d9-8d2e-3f77-6788-1e9af227e1a3",
+          "number": "INC0052062",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-09-25T20:18:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-24T08:25:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-07T12:17:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 52775",
+            "state": "closed"
+          },
+          "id": "ba8b2f81-f146-cf14-79ff-f2b8d899c2dc",
+          "number": "INC0052775",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-09-25T08:25:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-24T03:14:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-02-25T08:00:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 53086",
+            "state": "resolved"
+          },
+          "id": "cc6f8779-f1d0-d44d-e634-c78e76cc0873",
+          "number": "INC0053086",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-09-25T03:14:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-22T19:13:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-04-01T11:01:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 55007",
+            "state": "closed"
+          },
+          "id": "a6e2a2cd-71c3-a958-d04a-ec275caf4cb8",
+          "number": "INC0055007",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-09-23T19:13:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-22T12:15:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-10-24T23:32:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 55425",
+            "state": "in_progress"
+          },
+          "id": "016aa63f-dc92-a8f0-3bc4-ee191409c101",
+          "number": "INC0055425",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-09-23T12:15:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-21T03:13:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-05-05T22:34:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 57407",
+            "state": "in_progress"
+          },
+          "id": "40b5f295-cf88-77ce-bbcd-1c335feba588",
+          "number": "INC0057407",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-09-22T03:13:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-20T02:39:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-10-30T15:34:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 58881",
+            "state": "closed"
+          },
+          "id": "5ab9fa81-552f-d540-06a3-faedcbe684cf",
+          "number": "INC0058881",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-09-21T02:39:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-19T03:18:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-03-30T06:00:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 60282",
+            "state": "resolved"
+          },
+          "id": "bbf44bc0-08de-47d5-be50-ec3c8267f5b1",
+          "number": "INC0060282",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-09-20T03:18:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-16T01:07:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-04-28T23:38:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 64733",
+            "state": "resolved"
+          },
+          "id": "3a353339-3de9-fd21-7953-d1295a0c1721",
+          "number": "INC0064733",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-09-17T01:07:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-14T00:33:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-11-13T20:53:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 67647",
+            "state": "resolved"
+          },
+          "id": "ee67ee3d-8777-d3fe-0f38-daa70355e46c",
+          "number": "INC0067647",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-09-15T00:33:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-11T06:24:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-06-29T10:49:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 71616",
+            "state": "new"
+          },
+          "id": "de4b7454-0bf1-c14d-cba0-059a53bae046",
+          "number": "INC0071616",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-09-12T06:24:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-10T21:39:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-08-29T22:12:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 72141",
+            "state": "closed"
+          },
+          "id": "465ed3de-37d4-5e1e-3fc3-4c6736a688d1",
+          "number": "INC0072141",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-09-11T21:39:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-08T01:40:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-11-09T20:40:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 76220",
+            "state": "resolved"
+          },
+          "id": "1718a8cd-ea96-8c69-d737-07866a4e09ea",
+          "number": "INC0076220",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-09-09T01:40:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-06T05:27:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-11T02:27:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 78873",
+            "state": "in_progress"
+          },
+          "id": "3dff6399-5a85-adbc-f3a7-0e5bd44042ea",
+          "number": "INC0078873",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-09-07T05:27:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-05T20:07:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-20T05:21:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 79433",
+            "state": "closed"
+          },
+          "id": "9e34481d-da63-cac6-edb2-1178ae3b3e09",
+          "number": "INC0079433",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-09-06T20:07:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-04T04:10:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-01-27T00:46:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 81830",
+            "state": "closed"
+          },
+          "id": "162c8943-0ee5-0424-e203-ebd0ac880c39",
+          "number": "INC0081830",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-09-05T04:10:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-03T19:53:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-01-03T14:09:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 82327",
+            "state": "new"
+          },
+          "id": "69d2d0ce-f6af-4557-4914-e8d163722fd2",
+          "number": "INC0082327",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-09-04T19:53:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-03T16:22:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-11-02T04:49:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 82538",
+            "state": "in_progress"
+          },
+          "id": "b05ef905-cbcf-8283-e578-60bbb101eac9",
+          "number": "INC0082538",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-09-04T16:22:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-03T04:40:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-09-24T21:50:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 83240",
+            "state": "in_progress"
+          },
+          "id": "78cac0fb-8e1b-50f5-c6d5-b218375701e6",
+          "number": "INC0083240",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-09-04T04:40:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-09-01T18:10:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-22T17:33:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 85310",
+            "state": "new"
+          },
+          "id": "08af73f0-aa78-2b3a-60b9-0c3861bb62d5",
+          "number": "INC0085310",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-09-02T18:10:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-08-30T10:09:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-13T13:27:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 88671",
+            "state": "new"
+          },
+          "id": "e3b60be2-e9f0-3030-f886-676c3b9a73e8",
+          "number": "INC0088671",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-08-31T10:09:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-08-28T21:48:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-05-03T18:27:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 90852",
+            "state": "new"
+          },
+          "id": "942083d4-e05a-2e69-a60c-227316fb175d",
+          "number": "INC0090852",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-08-29T21:48:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-08-28T10:12:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-12-19T09:04:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 91548",
+            "state": "in_progress"
+          },
+          "id": "b37b47f1-1884-cfbc-5102-40e3c2343b04",
+          "number": "INC0091548",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-08-29T10:12:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-08-27T17:17:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-07-29T20:57:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 92563",
+            "state": "in_progress"
+          },
+          "id": "7085e673-91ef-4a67-2a0a-dbf3901f68be",
+          "number": "INC0092563",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-08-28T17:17:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-08-25T10:41:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-05-01T06:22:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 95839",
+            "state": "new"
+          },
+          "id": "b1574ff4-fbb2-8f19-c0e3-5ba7d0114b76",
+          "number": "INC0095839",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-08-26T10:41:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "removed": false
+          },
+          "created_at": "2026-08-25T04:42:00Z",
+          "data": {
+            "assignment_group": "01a21e37-ad13-79d6-909d-abeda6075f50",
+            "due_at": "2026-10-13T07:58:00Z",
+            "priority": 1,
+            "requester": "01a21e37-ad0d-7d4e-9f2e-24c96c851245",
+            "short_description": "S21 seed 96198",
+            "state": "new"
+          },
+          "id": "fbe23dce-8084-f977-2845-a47f01418d9f",
+          "number": "INC0096198",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-08-26T04:42:00Z",
+          "version": 1
+        }
+      ],
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTA4LTI2IDA0OjQyOjAwKzAwIiwiaSI6ImZiZTIzZGNlLTgwODQtZjk3Ny0yODQ1LWE0N2YwMTQxOGQ5ZiJ9.ohv3MTI_co-22eruZtnwwEbFz-U7nTXagFCo1STuoJs",
+      "total": 203,
+      "total_state": "exact"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "Alice: 203 records over 2 pages; the JSON scan has 203",
+      "status": "pass"
+    },
+    {
+      "test": "the same records as the JSON scan (md5 of the sorted ids)",
+      "status": "pass"
+    },
+    {
+      "test": "no record listed twice",
+      "status": "pass"
+    },
+    {
+      "test": "every page meets the total contract (A2-1): this page exact, the limit-200 pages [\"exact\",\"exact\"]",
+      "status": "pass"
+    },
+    {
+      "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
+      "status": "pass"
+    },
+    {
+      "test": "every listed record matches the filter",
+      "status": "pass"
+    }
+  ]
+}
