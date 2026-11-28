@@ -168,6 +168,7 @@ SELECT json_build_object(
   'waits_on_backfill', (SELECT count(*) FROM w WHERE bf > 0),
   'waits_on_other', (SELECT count(*) FROM w WHERE bf = 0),
   'max_wait_on_backfill_ms', (SELECT round(max(ms)::numeric, 3) FROM w WHERE bf > 0),
+  'max_wait_on_other_ms', (SELECT round(max(ms)::numeric, 3) FROM w WHERE bf = 0),
   'longest_waits_on_backfill_ms', (SELECT coalesce(json_agg(round(ms::numeric, 3) ORDER BY ms DESC), '[]') FROM (SELECT ms FROM w WHERE bf > 0 ORDER BY ms DESC LIMIT 20) t),
   'lock_types', (SELECT coalesce(json_object_agg(locktype, c), '{}') FROM (SELECT locktype, count(*) AS c FROM e1_wait GROUP BY locktype) t),
   'backfill_tx', (SELECT count(*) FROM x),
@@ -233,8 +234,23 @@ async function e1() {
   phase = 'during';
   const sampler = startSampler();
   await sleep(500);
-  let job, samples, server;
+  let job, samples, server, control;
   try {
+    // Positive control, before the job: a superuser session holds the row
+    // lock of one seeded incident (ordinal 400, owned by no writer) for
+    // 1.5 s while the kit PATCHes it. The sampler must see that wait, under
+    // "anything else" (the blocker is not nava_worker), or it proves nothing.
+    const ctl = md5uuid('s29a/400');
+    const holder = spawn('docker', ['compose', 'exec', '-T', 'postgres', 'sh', '-c',
+      'PGPASSWORD=$(cat /run/pg_superuser_password) psql -X -At -q -v ON_ERROR_STOP=1 -U pgadmin -d nava'], { stdio: ['pipe', 'ignore', 'inherit'] });
+    const held = new Promise((resolve) => holder.on('close', resolve));
+    holder.stdin.end(`BEGIN; SELECT 1 FROM records WHERE tenant_id = '${A}' AND id = '${ctl}' FOR UPDATE; SELECT pg_sleep(1.5); COMMIT;`);
+    await sleep(500);
+    const cur = await call(ADMIN_A, 'GET', '/api/v1/records/incident/' + ctl);
+    const r = await call(ADMIN_A, 'PATCH', '/api/v1/records/incident/' + ctl, { data: { description: 's29x control' } },
+      { 'Content-Type': 'application/merge-patch+json', 'If-Match': `W/"${cur.json.version}"` });
+    control = { status: r.status, ms: r.ms, holder_exit: await held };
+    await sleep(500);
     const v = await publish(ADMIN_A, (s) => { s.properties.s29_x1.default = 'a'; }, 'default s29_x1');
     ({ job, samples } = await waitJob(ADMIN_A, v));
   } finally {
@@ -250,7 +266,7 @@ async function e1() {
   const stored = Number(psql(`SELECT count(*) FROM records WHERE tenant_id = '${A}' AND id = ANY (ARRAY[${Object.keys(last).map((i) => `'${i}'::uuid`).join(',')}]) AND data->>'s29_x1' = 'a';`));
   const bmax = Math.max(...stats.baseline), dmax = Math.max(...stats.during);
   const sv = server || { error: 'no sampler result' };
-  out.e1 = { job, samples, server: sv, writes: { baseline: stats.baseline.length, during: stats.during.length },
+  out.e1 = { job, samples, server: sv, control, writes: { baseline: stats.baseline.length, during: stats.during.length },
     client_info_only: { baseline_ms: { p50: pct(stats.baseline, 50), p99: pct(stats.baseline, 99), max: bmax },
       during_ms: { p50: pct(stats.during, 50), p99: pct(stats.during, 99), max: dmax } },
     s412: stats.s412, retried_ok: stats.retried_ok, failed: stats.failed, lost };
@@ -258,6 +274,9 @@ async function e1() {
   check('E1 CI-4 server sampler covered the job',
     sv.error || `${sv.samples} samples over ${sv.seconds} s (every ${sv.avg_interval_ms} ms on average); ${sv.backfill_tx} backfill transactions seen`,
     !sv.error && sv.samples >= 1000 && sv.backfill_tx >= 100);
+  check('E1 CI-4 positive control: the sampler sees a held row lock (1.5 s, not a backfill backend)',
+    sv.error || `PATCH ${control && control.status} in ${control && control.ms} ms; ${sv.waits_on_other} wait(s) on anything else, longest ${sv.max_wait_on_other_ms} ms`,
+    !sv.error && control && control.status === 200 && control.holder_exit === 0 && sv.waits_on_other >= 1 && Number(sv.max_wait_on_other_ms) >= 500);
   check('E1 CI-4 no live write blocked by more than one backfill backend at once',
     sv.error || `max ${sv.max_backfill_blockers_at_once} at once; ${sv.waits_on_backfill} waits on a backfill backend, ${sv.waits_on_other} on anything else`,
     !sv.error && sv.max_backfill_blockers_at_once <= 1);
