@@ -38,11 +38,11 @@ jobs:
     env:
       S21_EVIDENCE: docs/acceptance/S21/evidence/gha-${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: sdk/ts/.nvmrc
           cache: npm
@@ -54,7 +54,7 @@ jobs:
         run: docker compose ps -a || true
       - name: S21 evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: s21-acceptance-evidence
           path: ${{ env.S21_EVIDENCE }}
