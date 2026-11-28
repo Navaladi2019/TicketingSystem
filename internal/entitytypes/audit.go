@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 
@@ -117,6 +118,45 @@ SELECT schema::jsonb::text FROM entity_definition_versions WHERE definition_id =
 	return json.RawMessage(s), nil
 }
 
+// previous is the schema a publish diff starts from.
+type previous struct {
+	doc json.RawMessage // jsonb text; nil when collided
+	// escaped: doc is the stored schema with each NUL escaped (ADR-004-E10).
+	escaped bool
+	// collided: escaping made two keys of one object equal (E10-5).
+	collided bool
+}
+
+// previousSchema reads a stored version as the start of a publish diff. A
+// version stored before publish refused a NUL (TICK-1121) holds one, which
+// jsonb refuses (22P05): it is escaped in Go (escapeNUL), then read back as
+// jsonb text, so diff_sha256 still covers TICK-451's canonical bytes. A
+// version with no NUL is read exactly as schemaJSONB reads it.
+func previousSchema(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, version int) (previous, error) {
+	var raw string
+	if err := tx.QueryRow(ctx, `
+SELECT schema::text FROM entity_definition_versions WHERE definition_id = $1 AND version = $2`,
+		definitionID, version).Scan(&raw); err != nil {
+		return previous{}, fmt.Errorf("entitytypes: read previous schema: %w", err)
+	}
+	esc, err := escapeNUL(json.RawMessage(raw))
+	if err != nil {
+		return previous{}, err
+	}
+	switch {
+	case esc.Collided:
+		return previous{escaped: true, collided: true}, nil
+	case !esc.Escaped:
+		doc, err := schemaJSONB(ctx, tx, definitionID, version)
+		return previous{doc: doc}, err
+	}
+	var s string
+	if err := tx.QueryRow(ctx, `SELECT $1::jsonb::text`, string(esc.Doc)).Scan(&s); err != nil {
+		return previous{}, fmt.Errorf("entitytypes: read escaped previous schema as jsonb: %w", err)
+	}
+	return previous{doc: json.RawMessage(s), escaped: true}, nil
+}
+
 // auditVersion writes the config-domain entry of a version just inserted in
 // tx: create for version 1, publish after. before is the previous version
 // number, or 0 for the first. It returns the entry's id (the causation of a
@@ -126,18 +166,26 @@ func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, versio
 	if err != nil {
 		return uuid.Nil, err
 	}
-	var before json.RawMessage
+	var before previous
 	action := audit.ActionCreate
 	var vBefore *int64
 	if version > 1 {
-		if before, err = schemaJSONB(ctx, tx, definitionID, version-1); err != nil {
+		if before, err = previousSchema(ctx, tx, definitionID, version-1); err != nil {
 			return uuid.Nil, err
 		}
 		action = audit.ActionPublish
 		vb := int64(version - 1)
 		vBefore = &vb
 	}
-	diff, err := jsondiff.Diff(before, after)
+	var diff json.RawMessage
+	if before.collided {
+		// E10-5: the escaped previous schema would lose a member, so the diff
+		// replaces the whole document. It carries after only, so no NUL.
+		slog.WarnContext(ctx, "audit_nul_escape_collision", slog.String("definition_id", definitionID.String()), slog.Int("version", version-1))
+		diff, err = jsondiff.Diff(json.RawMessage("null"), after)
+	} else {
+		diff, err = jsondiff.Diff(before.doc, after)
+	}
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("entitytypes: diff schema: %w", err)
 	}
@@ -147,17 +195,18 @@ func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, versio
 	}
 	va := int64(version)
 	e := audit.Entry{
-		Domain:        audit.DomainConfig,
-		Action:        action,
-		SubjectType:   audit.SubjectEntityDefinition,
-		SubjectID:     definitionID,
-		VersionBefore: vBefore,
-		VersionAfter:  &va,
-		Actor:         audit.Actor{PrincipalID: &by},
-		Source:        audit.SourceUser,
-		ContentSHA256: &schemaSum,
-		Diff:          diff,
-		SecretPaths:   paths,
+		Domain:         audit.DomainConfig,
+		Action:         action,
+		SubjectType:    audit.SubjectEntityDefinition,
+		SubjectID:      definitionID,
+		VersionBefore:  vBefore,
+		VersionAfter:   &va,
+		Actor:          audit.Actor{PrincipalID: &by},
+		Source:         audit.SourceUser,
+		ContentSHA256:  &schemaSum,
+		Diff:           diff,
+		DiffNULEscaped: before.escaped,
+		SecretPaths:    paths,
 	}
 	if id := requestid.FromContext(ctx); id != "" {
 		e.RequestID = &id
