@@ -1,7 +1,7 @@
 {
   "requests": 24,
-  "tests": 73,
-  "failed": 1,
+  "tests": 74,
+  "failed": 0,
   "results": [
     {
       "request": "S29-1",
@@ -80,16 +80,19 @@
       "status": 422,
       "tests": [
         {
-          "test": "problem+json, code invalid_schema",
-          "status": "fail",
-          "error": "expected 'invalid_definition' to deeply equal 'invalid_schema'"
-        },
-        {
           "test": "HTTP 422",
           "status": "pass"
         },
         {
+          "test": "problem+json, code invalid_definition",
+          "status": "pass"
+        },
+        {
           "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "errors[] points at /definition/schema/properties/s29_tier/default",
           "status": "pass"
         }
       ]
@@ -189,7 +192,7 @@
           "status": "pass"
         },
         {
-          "test": "job state filling: pending, filling or running, with counts",
+          "test": "job state running: pending, filling or running, with counts",
           "status": "pass"
         },
         {
@@ -223,7 +226,7 @@
           "status": "pass"
         },
         {
-          "test": "the job ended failed_records after 41 s and 21 samples",
+          "test": "the job ended failed_records after 71 s and 35 samples",
           "status": "pass"
         },
         {

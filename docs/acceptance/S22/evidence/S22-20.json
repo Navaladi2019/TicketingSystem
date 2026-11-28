@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18082",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-17823ed8-limit-noreason",
+      "Idempotency-Key": "s22-01119140-limit-noreason",
       "Content-Type": "application/json"
     },
     "body": "{\n  \"filterable_fields_per_type\": 10\n}"
@@ -22,7 +22,7 @@
       "status": 400,
       "code": "validation_failed",
       "detail": "The request does not match the API contract. See errors for the failing fields.",
-      "instance": "urn:nava:request:e186d4c322a05fd0f4561081d3129bcc",
+      "instance": "urn:nava:request:7733ff0ce0d89526c3028ac4c4d7f805",
       "errors": [
         {
           "pointer": "/body",

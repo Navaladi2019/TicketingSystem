@@ -137,14 +137,14 @@
       },
       "compat": "needs_backfill",
       "number_format": null,
-      "published_at": "2026-11-27T23:02:19.095218Z",
+      "published_at": "2026-11-28T03:02:46.025645Z",
       "backfill": {
         "failed": 1,
-        "finished_at": "2026-11-27T23:02:56.505341Z",
+        "finished_at": "2026-11-28T03:03:48.69926Z",
         "remaining": 1,
         "rewritten": 2049,
         "skipped": 0,
-        "started_at": "2026-11-27T23:02:19.16763Z",
+        "started_at": "2026-11-28T03:02:46.25661Z",
         "state": "failed_records",
         "target_version": 4
       }

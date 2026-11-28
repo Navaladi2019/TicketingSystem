@@ -1,0 +1,13 @@
+check|E1 CI-4 writes during the job (4 writers)|1889|ok
+check|E1 CI-4 slowest live write during the job <= baseline slowest + 250 ms|566 ms vs 237 ms|FAIL
+check|E1 CI-4 every 412 retried to success, no write failed|0 412s, 0 retried, 0 failed|ok
+check|E1 CI-4 no lost update (last description and the job value both stored)|0 lost of 200; 200 stored s29_x1|ok
+check|E1 CI-4 the job ended|failed_records|ok
+check|E2 CI-11 nava-worker killed mid-job|at 300 rewritten, 1001 remaining|ok
+check|E2 CI-11 the job ended after the kill|failed_records|ok
+check|E2 CI-11 exactly one new schema-backfill audit entry per rewritten record|deltas {"0":1,"1":2049}, 0 wrong|ok
+check|E3 the worker ran with the override|NAVA_SCHEMA_BACKFILL_CONCURRENCY=1|ok
+check|E3 both tenants' jobs ended|A failed_records, B done|ok
+check|E3 concurrency 1: the two tenants' jobs ran one after the other, not in parallel|A 2026-11-28T03:08:23.717894Z..2026-11-28T03:10:12.110411Z, B 2026-11-28T03:08:26.754102Z..2026-11-28T03:10:17.511858Z, overlap 105356 ms|FAIL
+check|E4 R9 schema.backfill workflows found|6|ok
+check|E4 R9 largest schema.backfill history (limit 51200; fails over half)|268 events (0.5%) in t:<tenant>:schema.backfill:42477e5f-496c-4bcf-affb-91c7c75ab3be:7|ok

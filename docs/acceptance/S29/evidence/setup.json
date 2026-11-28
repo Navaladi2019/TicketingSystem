@@ -127,7 +127,7 @@
         },
         "compat": "initial",
         "number_format": null,
-        "published_at": "2026-11-27T22:59:11.98943Z"
+        "published_at": "2026-11-28T02:55:41.77935Z"
       }
     }
   },
@@ -137,7 +137,7 @@
       "path": "/api/v1/entity-types/incident/versions",
       "headers": {
         "Content-Type": "application/json",
-        "Idempotency-Key": "s29-setup-5ecde645-f99b-40c2-a52a-9e3b4e1c239d"
+        "Idempotency-Key": "s29-setup-b2dd7876-6d6d-4e57-85bb-177c9f216e0d"
       },
       "body": {
         "definition": {
@@ -374,7 +374,7 @@
         },
         "compat": "compatible",
         "number_format": null,
-        "published_at": "2026-11-27T22:59:35.294627Z"
+        "published_at": "2026-11-28T02:56:26.226815Z"
       }
     }
   }

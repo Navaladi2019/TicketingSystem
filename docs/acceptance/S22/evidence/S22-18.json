@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18082",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-17823ed8-limit-4",
+      "Idempotency-Key": "s22-01119140-limit-4",
       "Content-Type": "application/json"
     },
     "body": "{\n  \"filterable_fields_per_type\": 4,\n  \"reason\": \"S22 kit: under the floor\"\n}"
@@ -22,7 +22,7 @@
       "status": 400,
       "code": "validation_failed",
       "detail": "The request does not match the API contract. See errors for the failing fields.",
-      "instance": "urn:nava:request:6483ed51df931dc5f0f1ddb280fe0df2",
+      "instance": "urn:nava:request:a9ba8dae96af0ca1e97e4b871619819c",
       "errors": [
         {
           "pointer": "/body/filterable_fields_per_type",

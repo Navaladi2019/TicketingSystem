@@ -135,14 +135,14 @@
       },
       "compat": "needs_backfill",
       "number_format": null,
-      "published_at": "2026-11-27T23:01:36.250951Z",
+      "published_at": "2026-11-28T03:01:29.651428Z",
       "backfill": {
         "failed": 1,
-        "finished_at": "2026-11-27T23:02:16.825633Z",
+        "finished_at": "2026-11-28T03:02:41.97791Z",
         "remaining": 1,
         "rewritten": 1999,
         "skipped": 50,
-        "started_at": "2026-11-27T23:01:36.466271Z",
+        "started_at": "2026-11-28T03:01:29.90856Z",
         "state": "failed_records",
         "target_version": 3
       }
@@ -154,7 +154,7 @@
       "status": "pass"
     },
     {
-      "test": "the job ended failed_records after 41 s and 21 samples",
+      "test": "the job ended failed_records after 71 s and 35 samples",
       "status": "pass"
     },
     {

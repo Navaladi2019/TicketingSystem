@@ -7,7 +7,8 @@
 //
 //   E1 CI-4, the wait bound: 4 live writers edit seeded incidents for 15 s
 //      with no job (the baseline), then while a job adds `s29_x1` to all
-//      ~2,050. Each write: read, then PATCH description with If-Match; a 412
+//      ~2,050, each writer paced to about 3.5 writes a second (28 requests a
+//      second in all, under the 50/s tenant rate limit). Each write: read, then PATCH description with If-Match; a 412
 //      (the job rewrote the record in between: a real interleave) re-reads
 //      and retries. Asserted: no write waits longer than the baseline's
 //      slowest plus BOUND_MS (one record's rewrite is ~7 ms, ADR-009 CI-12;
@@ -118,6 +119,7 @@ async function e1() {
     while (!stop) {
       const id = owned[w][k % 50];
       const desc = `s29x writer ${w} write ${k}`;
+      const started = Date.now();
       for (let attempt = 0; ; attempt++) {
         const cur = await call(ADMIN_A, 'GET', '/api/v1/records/incident/' + id);
         const r = await call(ADMIN_A, 'PATCH', '/api/v1/records/incident/' + id, { data: { description: desc } },
@@ -129,6 +131,10 @@ async function e1() {
       }
       last[id] = desc;
       k++;
+      // Paced: each write is a GET and a PATCH; 4 writers at about 3.5 writes a
+      // second each stay near 28 requests a second, under the tenant's 50/s
+      // rate limit (a 429 would be the limiter, not the backfill).
+      await sleep(Math.max(0, 285 - (Date.now() - started)));
     }
   };
   const ws = [0, 1, 2, 3].map(writer);
