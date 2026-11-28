@@ -1,0 +1,4246 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[s29_level]=3&limit=200",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null,
+      "Cookie": "********"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.600929Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "description": "S29 baseline update",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 1",
+            "state": "new"
+          },
+          "id": "01a22206-3fb7-78a6-9b77-12db7e7168b1",
+          "number": "INC0000001",
+          "schema_version": 3,
+          "state": "new",
+          "updated_at": "2026-11-28T12:01:09.226776Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.254198Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 25",
+            "state": "new"
+          },
+          "id": "01a22206-4244-7b37-b002-9833f86e6011",
+          "number": "INC0000025",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.254198Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.229122Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 24",
+            "state": "new"
+          },
+          "id": "01a22206-422a-7c09-bef2-53df3513d10a",
+          "number": "INC0000024",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.229122Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.202776Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 23",
+            "state": "new"
+          },
+          "id": "01a22206-4211-73a9-88c4-2b37aeb255ac",
+          "number": "INC0000023",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.202776Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.176578Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 22",
+            "state": "new"
+          },
+          "id": "01a22206-41f5-7b22-8026-f866b4af93eb",
+          "number": "INC0000022",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.176578Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.149926Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 21",
+            "state": "new"
+          },
+          "id": "01a22206-41dc-7477-a6e4-4876689e379e",
+          "number": "INC0000021",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.149926Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.120247Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 20",
+            "state": "new"
+          },
+          "id": "01a22206-41be-71d7-9ae7-c102fad308d6",
+          "number": "INC0000020",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.120247Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.085806Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 19",
+            "state": "new"
+          },
+          "id": "01a22206-419c-7217-b5fd-4647e0a582ec",
+          "number": "INC0000019",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.085806Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.05659Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 18",
+            "state": "new"
+          },
+          "id": "01a22206-417e-7405-8653-2a919eea0a89",
+          "number": "INC0000018",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.05659Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:25.024601Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 17",
+            "state": "new"
+          },
+          "id": "01a22206-415d-78fa-b9d9-91900c08b691",
+          "number": "INC0000017",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:25.024601Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.993425Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 16",
+            "state": "new"
+          },
+          "id": "01a22206-413e-739c-9992-2dfaa97defe9",
+          "number": "INC0000016",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.993425Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.960683Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 15",
+            "state": "new"
+          },
+          "id": "01a22206-411d-76ee-89fe-4e8db9c8e763",
+          "number": "INC0000015",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.960683Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.929325Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 14",
+            "state": "new"
+          },
+          "id": "01a22206-40ff-77f3-ab9c-e5b2288b4f86",
+          "number": "INC0000014",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.929325Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.890189Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 13",
+            "state": "new"
+          },
+          "id": "01a22206-40d7-74f1-863d-626e27151396",
+          "number": "INC0000013",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.890189Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.861081Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 12",
+            "state": "new"
+          },
+          "id": "01a22206-40bb-7418-80a0-98cb76fbc5ca",
+          "number": "INC0000012",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.861081Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.836765Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 11",
+            "state": "new"
+          },
+          "id": "01a22206-40a3-74af-b4b3-78abd9254bc0",
+          "number": "INC0000011",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.836765Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.815307Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 10",
+            "state": "new"
+          },
+          "id": "01a22206-408d-7b44-89f3-ba997fd6e209",
+          "number": "INC0000010",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.815307Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.794216Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 9",
+            "state": "new"
+          },
+          "id": "01a22206-4078-7ddc-b4e1-1ed7b5fe4634",
+          "number": "INC0000009",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.794216Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.769154Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 8",
+            "state": "new"
+          },
+          "id": "01a22206-405f-7c34-b1c9-757a200785bc",
+          "number": "INC0000008",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.769154Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.746404Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 7",
+            "state": "new"
+          },
+          "id": "01a22206-4048-76cb-8407-b370c73a89b2",
+          "number": "INC0000007",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.746404Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.721229Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 6",
+            "state": "new"
+          },
+          "id": "01a22206-402f-7afd-a471-2c7e7e99607a",
+          "number": "INC0000006",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.721229Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.69987Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 5",
+            "state": "new"
+          },
+          "id": "01a22206-401a-791a-92be-c319b24c17fe",
+          "number": "INC0000005",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.69987Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.678329Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 4",
+            "state": "new"
+          },
+          "id": "01a22206-4004-7e4f-8a82-f0cedbcfdba2",
+          "number": "INC0000004",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.678329Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.65316Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 3",
+            "state": "new"
+          },
+          "id": "01a22206-3feb-7b38-a423-62f2701a3021",
+          "number": "INC0000003",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.65316Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-11-28T11:59:24.629869Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 2,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 held 2",
+            "state": "new"
+          },
+          "id": "01a22206-3fd4-77d6-9235-588a1335ec6f",
+          "number": "INC0000002",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-28T11:59:24.629869Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:59:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 1",
+            "state": "new"
+          },
+          "id": "9f830bae-ca17-9297-a232-33c67ea69f33",
+          "number": "INC9000001",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:59:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:58:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 2",
+            "state": "new"
+          },
+          "id": "2ad32853-2908-68fe-d45e-45bc2eabf10a",
+          "number": "INC9000002",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:58:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:57:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 3",
+            "state": "new"
+          },
+          "id": "43544c8e-4fb0-c66f-d5c3-7bc4988c21d6",
+          "number": "INC9000003",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:57:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:56:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 4",
+            "state": "new"
+          },
+          "id": "609853d6-1921-4dbe-510b-11d2e4fca7a9",
+          "number": "INC9000004",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:56:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:55:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 5",
+            "state": "new"
+          },
+          "id": "508e0815-f305-2687-7153-986e44a75b57",
+          "number": "INC9000005",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:55:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:54:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 6",
+            "state": "new"
+          },
+          "id": "5041dca5-8a48-342d-0c01-9d5f4ff9f1ab",
+          "number": "INC9000006",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:54:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:53:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 7",
+            "state": "new"
+          },
+          "id": "1be3dd7b-58ea-6d0c-bdf4-65034fc89492",
+          "number": "INC9000007",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:53:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:52:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 8",
+            "state": "new"
+          },
+          "id": "68ca5c74-52dc-0acd-2e18-d5d1b414c96f",
+          "number": "INC9000008",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:52:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:51:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 9",
+            "state": "new"
+          },
+          "id": "aa3e86b5-4880-88ec-4537-bdcfb25fb40a",
+          "number": "INC9000009",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:51:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:50:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 10",
+            "state": "new"
+          },
+          "id": "be3b5e55-6a66-f64d-61b6-97127e00be7e",
+          "number": "INC9000010",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:50:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:49:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 11",
+            "state": "new"
+          },
+          "id": "c866691f-9fca-1345-7de1-4596b79cafd7",
+          "number": "INC9000011",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:49:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:48:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 12",
+            "state": "new"
+          },
+          "id": "a9221f27-843c-63f2-5d1f-90fcd347c7f2",
+          "number": "INC9000012",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:48:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:47:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 13",
+            "state": "new"
+          },
+          "id": "54859756-d457-42be-e07c-1313a7d18742",
+          "number": "INC9000013",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:47:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:46:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 14",
+            "state": "new"
+          },
+          "id": "0e03d090-0ee3-a4dc-2aa5-f409193dcd1c",
+          "number": "INC9000014",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:46:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:45:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 15",
+            "state": "new"
+          },
+          "id": "6c1884ff-af37-1413-bbca-14f437068f53",
+          "number": "INC9000015",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:45:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:44:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 16",
+            "state": "new"
+          },
+          "id": "79bb407c-30dc-85b5-9436-03dc7e19e40e",
+          "number": "INC9000016",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:44:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:43:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 17",
+            "state": "new"
+          },
+          "id": "56cabdd0-d519-62ae-a52b-36596a27432d",
+          "number": "INC9000017",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:43:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:42:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 18",
+            "state": "new"
+          },
+          "id": "fd527f14-eb49-8af5-d7b8-916b5f5aa66d",
+          "number": "INC9000018",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:42:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:41:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 19",
+            "state": "new"
+          },
+          "id": "c57686ab-5568-8726-2cfb-89ae9c1dd095",
+          "number": "INC9000019",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:41:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:40:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 20",
+            "state": "new"
+          },
+          "id": "00ffe5ba-4422-a63c-4eb8-e155ec64c825",
+          "number": "INC9000020",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:40:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:39:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 21",
+            "state": "new"
+          },
+          "id": "d654b99a-dc33-882d-ecf3-3d2522ba3066",
+          "number": "INC9000021",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:39:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:38:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 22",
+            "state": "new"
+          },
+          "id": "7278a72c-3f8e-30f8-8c66-ea0076c13691",
+          "number": "INC9000022",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:38:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:37:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 23",
+            "state": "new"
+          },
+          "id": "b1a26098-6d08-e2f8-c559-74ab697ca0cb",
+          "number": "INC9000023",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:37:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:36:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 24",
+            "state": "new"
+          },
+          "id": "30d39ffb-da58-913d-5a58-267bd55cfdd2",
+          "number": "INC9000024",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:36:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:35:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 25",
+            "state": "new"
+          },
+          "id": "a0a46430-d0f0-3ed3-eb7b-b4fb5ab4ab4e",
+          "number": "INC9000025",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:35:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:34:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 26",
+            "state": "new"
+          },
+          "id": "8cc19868-7de7-6388-e8d1-27e8dbfcadf7",
+          "number": "INC9000026",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:34:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:33:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 27",
+            "state": "new"
+          },
+          "id": "5096055c-3d9a-2137-c8a2-1698bf955dfe",
+          "number": "INC9000027",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:33:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:32:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 28",
+            "state": "new"
+          },
+          "id": "51e7a0be-de6b-88f8-e1c5-bb929cf51a34",
+          "number": "INC9000028",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:32:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:31:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 29",
+            "state": "new"
+          },
+          "id": "5cab803d-3e9c-d8fc-4561-9a53e59b6267",
+          "number": "INC9000029",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:31:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:30:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 30",
+            "state": "new"
+          },
+          "id": "c605f2da-78eb-31c8-a7a6-9bcfaf6d048a",
+          "number": "INC9000030",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:30:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:29:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 31",
+            "state": "new"
+          },
+          "id": "9a578f0d-97ef-0ec2-aa26-c7bed108dd5e",
+          "number": "INC9000031",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:29:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:28:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 32",
+            "state": "new"
+          },
+          "id": "996c5e79-4dfe-57e7-2549-6d99a76ff502",
+          "number": "INC9000032",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:28:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:27:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 33",
+            "state": "new"
+          },
+          "id": "ce7d035c-1b88-4fa7-0d36-413afe331f19",
+          "number": "INC9000033",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:27:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:26:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 34",
+            "state": "new"
+          },
+          "id": "fcc03adf-ecf0-f3b2-74de-8fad04c85357",
+          "number": "INC9000034",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:26:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:25:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 35",
+            "state": "new"
+          },
+          "id": "e8ef6e75-425b-847a-a80a-a0e78a50d979",
+          "number": "INC9000035",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:25:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:24:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 36",
+            "state": "new"
+          },
+          "id": "87b32d40-03fd-9c9c-a74c-acfe335f7863",
+          "number": "INC9000036",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:24:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:23:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 37",
+            "state": "new"
+          },
+          "id": "54ba72e9-09e6-1c50-9bd4-6c4b24e107d0",
+          "number": "INC9000037",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:23:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:22:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 38",
+            "state": "new"
+          },
+          "id": "b0518d18-8612-dde5-c509-235cb1ae3787",
+          "number": "INC9000038",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:22:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:21:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 39",
+            "state": "new"
+          },
+          "id": "299808a7-1b5d-a747-dd12-66bce81beaf1",
+          "number": "INC9000039",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:21:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:20:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 40",
+            "state": "new"
+          },
+          "id": "e8a6a7e9-4d23-2f35-3a95-22842d92f8f5",
+          "number": "INC9000040",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:20:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:19:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 41",
+            "state": "new"
+          },
+          "id": "c21880fe-c0f9-13bd-7ac9-a3173df891cd",
+          "number": "INC9000041",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:19:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:18:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 42",
+            "state": "new"
+          },
+          "id": "3bc79d34-37f4-ab03-7302-3dab14bb674f",
+          "number": "INC9000042",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:18:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:17:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 43",
+            "state": "new"
+          },
+          "id": "c76965ab-e705-2914-5724-7a8f34c9b17a",
+          "number": "INC9000043",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:17:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:16:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 44",
+            "state": "new"
+          },
+          "id": "780cb7d3-b115-0e38-ff73-b1c702673bd9",
+          "number": "INC9000044",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:16:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:15:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 45",
+            "state": "new"
+          },
+          "id": "a91c2daa-1419-9804-63df-c3f8090f6eb5",
+          "number": "INC9000045",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:15:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:14:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 46",
+            "state": "new"
+          },
+          "id": "dab94907-d581-df7a-aef3-4734d237ffa0",
+          "number": "INC9000046",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:14:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:13:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 47",
+            "state": "new"
+          },
+          "id": "dbd7b784-b24f-7cb3-a457-e256abbd8b22",
+          "number": "INC9000047",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:13:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:12:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 48",
+            "state": "new"
+          },
+          "id": "3b120226-0d08-78af-4dd4-e587b91795ac",
+          "number": "INC9000048",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:12:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:11:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 49",
+            "state": "new"
+          },
+          "id": "8c012c27-e479-238f-1e0e-e356cd0db117",
+          "number": "INC9000049",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:11:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:10:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 50",
+            "state": "new"
+          },
+          "id": "427ef133-8e70-d919-76e0-707889697a16",
+          "number": "INC9000050",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:10:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:09:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 51",
+            "state": "new"
+          },
+          "id": "a5196518-94f7-f30e-b7df-5203a1a7be19",
+          "number": "INC9000051",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:09:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:08:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 52",
+            "state": "new"
+          },
+          "id": "c9e484f5-2931-2976-32d4-9b9199709528",
+          "number": "INC9000052",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:08:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:07:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 53",
+            "state": "new"
+          },
+          "id": "cf65935d-3462-d63f-0392-636eb51207ee",
+          "number": "INC9000053",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:07:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:06:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 54",
+            "state": "new"
+          },
+          "id": "5c7f777a-e919-d0aa-8f8f-c19c2bc4da59",
+          "number": "INC9000054",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:06:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:05:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 55",
+            "state": "new"
+          },
+          "id": "28d8b1ea-75b0-9239-43d2-0125b005dbda",
+          "number": "INC9000055",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:05:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:04:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 56",
+            "state": "new"
+          },
+          "id": "243229f7-6834-cf18-a1a3-849920e826e3",
+          "number": "INC9000056",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:04:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:03:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 57",
+            "state": "new"
+          },
+          "id": "d230abd2-c381-e220-531c-009dfe586733",
+          "number": "INC9000057",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:03:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:02:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 58",
+            "state": "new"
+          },
+          "id": "0295753e-d81f-758a-2937-799d1639703a",
+          "number": "INC9000058",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:02:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:01:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 59",
+            "state": "new"
+          },
+          "id": "521632c7-10f2-19b3-4f4a-35e767e24446",
+          "number": "INC9000059",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:01:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T23:00:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 60",
+            "state": "new"
+          },
+          "id": "163e4ddf-0409-2515-6022-cc7c87f6ef76",
+          "number": "INC9000060",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T23:00:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:59:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 61",
+            "state": "new"
+          },
+          "id": "bace770c-60e3-0d08-3ed4-1113dae2726a",
+          "number": "INC9000061",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:59:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:58:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 62",
+            "state": "new"
+          },
+          "id": "56179cce-9670-6ab1-bb5e-dfec5e8fea93",
+          "number": "INC9000062",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:58:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:57:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 63",
+            "state": "new"
+          },
+          "id": "79f1fa55-0c65-0149-6249-76949dfba17d",
+          "number": "INC9000063",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:57:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:56:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 64",
+            "state": "new"
+          },
+          "id": "7aa2b2dd-1b4d-6e18-9bb6-c2a815fcbfca",
+          "number": "INC9000064",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:56:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:55:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 65",
+            "state": "new"
+          },
+          "id": "59887ba9-d2c7-a84d-5d28-be9a50c316b2",
+          "number": "INC9000065",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:55:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:54:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 66",
+            "state": "new"
+          },
+          "id": "4e43b022-8d6b-f1a7-c0ee-020da61b68e2",
+          "number": "INC9000066",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:54:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:53:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 67",
+            "state": "new"
+          },
+          "id": "7215dfb8-d11d-e91e-3566-8ba48e6c85ab",
+          "number": "INC9000067",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:53:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:52:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 68",
+            "state": "new"
+          },
+          "id": "4deab86b-f72a-5121-5805-c4508693caa8",
+          "number": "INC9000068",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:52:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:51:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 69",
+            "state": "new"
+          },
+          "id": "1e57908e-5e38-9260-8026-8ea3309e1d77",
+          "number": "INC9000069",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:51:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:50:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 70",
+            "state": "new"
+          },
+          "id": "fc1360dc-a294-5e58-34f5-74a9b6ad30ab",
+          "number": "INC9000070",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:50:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:49:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 71",
+            "state": "new"
+          },
+          "id": "e5a65320-33ec-2e78-8ff5-f45caca01268",
+          "number": "INC9000071",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:49:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:48:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 72",
+            "state": "new"
+          },
+          "id": "831892fd-4038-47eb-a146-44e1e88dbce8",
+          "number": "INC9000072",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:48:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:47:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 73",
+            "state": "new"
+          },
+          "id": "e2ffc586-0e86-557b-ae0d-b5c406783f21",
+          "number": "INC9000073",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:47:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:46:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 74",
+            "state": "new"
+          },
+          "id": "c9de08a2-6f44-fe0a-5a66-60da5a6ca721",
+          "number": "INC9000074",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:46:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:45:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 75",
+            "state": "new"
+          },
+          "id": "91670ecd-a77f-c4db-2fdd-4eca19cc7403",
+          "number": "INC9000075",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:45:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:44:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 76",
+            "state": "new"
+          },
+          "id": "0d0dc1e7-9716-7142-53ce-436992d813b6",
+          "number": "INC9000076",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:44:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:43:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 77",
+            "state": "new"
+          },
+          "id": "14397bc2-aa7f-3cdf-d3a1-b587ace1a2b2",
+          "number": "INC9000077",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:43:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:42:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 78",
+            "state": "new"
+          },
+          "id": "32adc78f-6959-8e18-ea05-653de949596b",
+          "number": "INC9000078",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:42:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:41:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 79",
+            "state": "new"
+          },
+          "id": "e716722b-bf17-8fcb-e5ae-bdc30e186acf",
+          "number": "INC9000079",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:41:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:40:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 80",
+            "state": "new"
+          },
+          "id": "a1823efc-2e9e-d21b-c8fc-43f85fec36e0",
+          "number": "INC9000080",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:40:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:39:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 81",
+            "state": "new"
+          },
+          "id": "51facfac-ff59-fe45-8bb5-23287cfe8937",
+          "number": "INC9000081",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:39:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:38:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 82",
+            "state": "new"
+          },
+          "id": "e7542469-6304-b24d-bc17-54b06ec1e1f7",
+          "number": "INC9000082",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:38:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:37:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 83",
+            "state": "new"
+          },
+          "id": "1fd1c884-e412-980f-b3af-68f8e7b49fd2",
+          "number": "INC9000083",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:37:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:36:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 84",
+            "state": "new"
+          },
+          "id": "b0654c35-b33c-8617-4d89-9078e4368fa0",
+          "number": "INC9000084",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:36:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:35:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 85",
+            "state": "new"
+          },
+          "id": "66a2e967-e861-6af0-9cf0-1e60d51bbeb8",
+          "number": "INC9000085",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:35:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:34:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 86",
+            "state": "new"
+          },
+          "id": "405e147c-fd84-dbee-f4bb-bef03f258250",
+          "number": "INC9000086",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:34:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:33:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 87",
+            "state": "new"
+          },
+          "id": "26acf49e-b2ee-79f9-7d16-0537e521eea7",
+          "number": "INC9000087",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:33:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:32:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 88",
+            "state": "new"
+          },
+          "id": "6288fcea-d200-b3bf-d745-6e09dd24f3e6",
+          "number": "INC9000088",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:32:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:31:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 89",
+            "state": "new"
+          },
+          "id": "ca4ec97e-cda7-853f-3bc6-d0f1cb7a3ab6",
+          "number": "INC9000089",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:31:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:30:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 90",
+            "state": "new"
+          },
+          "id": "678bbf60-4f52-fc65-e0f1-315197be9315",
+          "number": "INC9000090",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:30:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:29:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 91",
+            "state": "new"
+          },
+          "id": "ad1a9b52-df8d-cea1-6010-97e5e1cf30db",
+          "number": "INC9000091",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:29:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:28:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 92",
+            "state": "new"
+          },
+          "id": "31ce512e-897f-c0b0-0c01-ee1c4109c095",
+          "number": "INC9000092",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:28:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:27:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 93",
+            "state": "new"
+          },
+          "id": "26d289e7-0b78-0728-5439-73b1d4c737c7",
+          "number": "INC9000093",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:27:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:26:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 94",
+            "state": "new"
+          },
+          "id": "39cb9be8-0cbd-6fa7-b3d3-ad37187ac50e",
+          "number": "INC9000094",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:26:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:25:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 95",
+            "state": "new"
+          },
+          "id": "dba91b37-5dda-4ff1-0a19-a5dfcbc5cb09",
+          "number": "INC9000095",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:25:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:24:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 96",
+            "state": "new"
+          },
+          "id": "b9854ac5-cf59-cb8a-ce59-986138d461c7",
+          "number": "INC9000096",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:24:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:23:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 97",
+            "state": "new"
+          },
+          "id": "df55cf15-ae59-cbca-e1a7-f795cd1190aa",
+          "number": "INC9000097",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:23:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:22:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 98",
+            "state": "new"
+          },
+          "id": "1867eb4b-5f61-2ad4-1324-41c9be5d3bc6",
+          "number": "INC9000098",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:22:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:21:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 99",
+            "state": "new"
+          },
+          "id": "3b3b908b-c4d9-f274-6218-52a77f227104",
+          "number": "INC9000099",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:21:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:20:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 100",
+            "state": "new"
+          },
+          "id": "5e8db85a-86b1-b4d1-fe3a-b3c45d18a307",
+          "number": "INC9000100",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:20:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:19:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 101",
+            "state": "new"
+          },
+          "id": "8adf91aa-cb15-1923-0e72-fe10f83101aa",
+          "number": "INC9000101",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:19:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:18:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 102",
+            "state": "new"
+          },
+          "id": "12701b9b-c228-6dcc-cdd0-77fb00d69deb",
+          "number": "INC9000102",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:18:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:17:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 103",
+            "state": "new"
+          },
+          "id": "a2c2c1f0-4525-86d8-a41e-9119bf33c612",
+          "number": "INC9000103",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:17:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:16:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 104",
+            "state": "new"
+          },
+          "id": "efa88f0b-56f8-8634-9e59-6fd9415b39bb",
+          "number": "INC9000104",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:16:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:15:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 105",
+            "state": "new"
+          },
+          "id": "5f04daa6-d70f-4561-f037-996f0c4825a6",
+          "number": "INC9000105",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:15:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:14:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 106",
+            "state": "new"
+          },
+          "id": "0df1b182-7d63-1bb3-3187-3450f93789cf",
+          "number": "INC9000106",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:14:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:13:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 107",
+            "state": "new"
+          },
+          "id": "ad0c25fb-2c2f-a021-3743-6f9fa6668fc0",
+          "number": "INC9000107",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:13:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:12:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 108",
+            "state": "new"
+          },
+          "id": "906c236c-333e-93a5-95db-5b249ffe63de",
+          "number": "INC9000108",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:12:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:11:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 109",
+            "state": "new"
+          },
+          "id": "1da7b6f3-8b79-7d2c-b43e-cdbd162dfaad",
+          "number": "INC9000109",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:11:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:10:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 110",
+            "state": "new"
+          },
+          "id": "b80c0b28-5770-7725-7674-943c7ab4b96c",
+          "number": "INC9000110",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:10:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:09:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 111",
+            "state": "new"
+          },
+          "id": "47ceb067-9da9-c104-57d5-a62d065401ba",
+          "number": "INC9000111",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:09:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:08:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 112",
+            "state": "new"
+          },
+          "id": "c43d7d6a-83ea-f652-8abc-9ade320c911e",
+          "number": "INC9000112",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:08:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:07:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 113",
+            "state": "new"
+          },
+          "id": "972b8d88-a356-1679-f8fb-cc9facd2b438",
+          "number": "INC9000113",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:07:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:06:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 114",
+            "state": "new"
+          },
+          "id": "15639715-1a5f-9d27-434f-608310195cd1",
+          "number": "INC9000114",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:06:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:05:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 115",
+            "state": "new"
+          },
+          "id": "dc23907d-a31b-20af-4d97-4cbbf169abc9",
+          "number": "INC9000115",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:05:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:04:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 116",
+            "state": "new"
+          },
+          "id": "eaff114b-7a2f-050a-21a9-58ea28c206b9",
+          "number": "INC9000116",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:04:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:03:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 117",
+            "state": "new"
+          },
+          "id": "b4b298a6-a938-ec39-0792-57f665c266ee",
+          "number": "INC9000117",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:03:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:02:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 118",
+            "state": "new"
+          },
+          "id": "d45855b7-1e6b-ecd0-61ab-0b726c9e7ef8",
+          "number": "INC9000118",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:02:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:01:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 119",
+            "state": "new"
+          },
+          "id": "6fe87e15-ed3c-9fe0-d6e3-a8a36c9eea41",
+          "number": "INC9000119",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:01:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T22:00:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 120",
+            "state": "new"
+          },
+          "id": "43ddbdb9-b868-ba99-0f73-d0827b1ece99",
+          "number": "INC9000120",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T22:00:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:59:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 121",
+            "state": "new"
+          },
+          "id": "3e2c1f0c-1389-8c14-ddf2-4c8526ae8918",
+          "number": "INC9000121",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:59:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:58:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 122",
+            "state": "new"
+          },
+          "id": "af58b911-a341-e3e8-0142-823789f9e219",
+          "number": "INC9000122",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:58:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:57:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 123",
+            "state": "new"
+          },
+          "id": "fb02c7d2-26e9-227c-6f68-02d23edb3087",
+          "number": "INC9000123",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:57:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:56:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 124",
+            "state": "new"
+          },
+          "id": "be2e13e5-dd01-5c4e-d9d4-151bf8a5deab",
+          "number": "INC9000124",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:56:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:55:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 125",
+            "state": "new"
+          },
+          "id": "971b82fe-ae79-ceda-ba33-fe1900b13d10",
+          "number": "INC9000125",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:55:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:54:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 126",
+            "state": "new"
+          },
+          "id": "2d92f968-cc47-638d-3fdd-24c7f9df22b7",
+          "number": "INC9000126",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:54:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:53:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 127",
+            "state": "new"
+          },
+          "id": "98aa2501-2b0f-b3e5-8404-552a23af72fa",
+          "number": "INC9000127",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:53:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:52:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 128",
+            "state": "new"
+          },
+          "id": "8d215490-491a-445d-27bf-08bb622fdad2",
+          "number": "INC9000128",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:52:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:51:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 129",
+            "state": "new"
+          },
+          "id": "995bfaac-8da3-0946-60f0-8d139a4e826d",
+          "number": "INC9000129",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:51:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:50:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 130",
+            "state": "new"
+          },
+          "id": "6dc8e16f-8938-6f27-cbc4-9df0146e5662",
+          "number": "INC9000130",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:50:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:49:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 131",
+            "state": "new"
+          },
+          "id": "e3c920a8-3a0e-937c-2822-e011f9f4e657",
+          "number": "INC9000131",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:49:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:48:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 132",
+            "state": "new"
+          },
+          "id": "10cd0bd3-63f3-e0de-0224-79799bcad789",
+          "number": "INC9000132",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:48:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:47:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 133",
+            "state": "new"
+          },
+          "id": "33a1d84b-d6be-87c9-3b9c-96b3b9e1afbf",
+          "number": "INC9000133",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:47:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:46:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 134",
+            "state": "new"
+          },
+          "id": "58cfd656-b930-e912-1752-4e71d6ec092c",
+          "number": "INC9000134",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:46:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:45:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 135",
+            "state": "new"
+          },
+          "id": "d41bedd3-e945-80a1-3fb2-ccd3322d8047",
+          "number": "INC9000135",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:45:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:44:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 136",
+            "state": "new"
+          },
+          "id": "3c990677-0c9a-585c-f67f-17399835de16",
+          "number": "INC9000136",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:44:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:43:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 137",
+            "state": "new"
+          },
+          "id": "93788446-dcbd-f36b-54f9-9c454cd83dae",
+          "number": "INC9000137",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:43:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:42:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 138",
+            "state": "new"
+          },
+          "id": "cf72f28c-b286-ec24-028a-fa4ee28e9981",
+          "number": "INC9000138",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:42:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:41:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 139",
+            "state": "new"
+          },
+          "id": "fe0dda66-210c-3daf-d72a-a1dc6b2318ff",
+          "number": "INC9000139",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:41:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:40:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 140",
+            "state": "new"
+          },
+          "id": "dd02ec30-e332-9285-dd83-adfb6922bdcf",
+          "number": "INC9000140",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:40:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:39:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 141",
+            "state": "new"
+          },
+          "id": "d116620d-7479-1a0e-011c-4561a60d34f7",
+          "number": "INC9000141",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:39:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:38:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 142",
+            "state": "new"
+          },
+          "id": "6aec9261-6d5f-7f50-0f47-6b0b26ecaf80",
+          "number": "INC9000142",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:38:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:37:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 143",
+            "state": "new"
+          },
+          "id": "74ccc578-edc8-6cc8-a43a-1a0ffdf2ac75",
+          "number": "INC9000143",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:37:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:36:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 144",
+            "state": "new"
+          },
+          "id": "5fe6431a-5e92-6070-479a-35b7f891ed2f",
+          "number": "INC9000144",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:36:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:35:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 145",
+            "state": "new"
+          },
+          "id": "361fd546-1f27-dec8-6ea6-a2b6bc9cf281",
+          "number": "INC9000145",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:35:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:34:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 146",
+            "state": "new"
+          },
+          "id": "b5badd66-4c91-0b10-df3a-6f847a390854",
+          "number": "INC9000146",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:34:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:33:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 147",
+            "state": "new"
+          },
+          "id": "30d36f10-094b-c888-08a3-dc788640c229",
+          "number": "INC9000147",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:33:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:32:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 148",
+            "state": "new"
+          },
+          "id": "f18edf78-ae39-006f-5718-822427b5d1db",
+          "number": "INC9000148",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:32:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:31:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 149",
+            "state": "new"
+          },
+          "id": "ec9a135e-d467-c7df-3dae-7531451a033e",
+          "number": "INC9000149",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:31:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:30:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 150",
+            "state": "new"
+          },
+          "id": "96ee8a10-2b47-2084-d9be-71accc7e8378",
+          "number": "INC9000150",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:30:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:29:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 151",
+            "state": "new"
+          },
+          "id": "82a4ccc2-740b-7fe5-d192-1753cb59b23f",
+          "number": "INC9000151",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:29:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:28:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 152",
+            "state": "new"
+          },
+          "id": "7f125e2f-fa51-8053-fc8c-fd9080b05027",
+          "number": "INC9000152",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:28:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:27:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 153",
+            "state": "new"
+          },
+          "id": "8168b256-a5fe-3091-1acc-87da5a649492",
+          "number": "INC9000153",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:27:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:26:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 154",
+            "state": "new"
+          },
+          "id": "1978e2a8-f8d2-aa4e-ef5d-dc1a136f8015",
+          "number": "INC9000154",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:26:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:25:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 155",
+            "state": "new"
+          },
+          "id": "83971126-1047-7550-c841-644f2c1d283b",
+          "number": "INC9000155",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:25:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:24:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 156",
+            "state": "new"
+          },
+          "id": "d610ea5b-58a5-0737-5d7f-c8d709a0b95b",
+          "number": "INC9000156",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:24:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:23:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 157",
+            "state": "new"
+          },
+          "id": "c1aefa6d-1d8f-716c-84c9-d7f1d023ba14",
+          "number": "INC9000157",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:23:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:22:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 158",
+            "state": "new"
+          },
+          "id": "62e10cad-afc6-deb2-4d95-5c5238a2530a",
+          "number": "INC9000158",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:22:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:21:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 159",
+            "state": "new"
+          },
+          "id": "9f44baab-d227-f327-033a-87b8745a2e88",
+          "number": "INC9000159",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:21:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:20:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 160",
+            "state": "new"
+          },
+          "id": "cde2dc59-2e51-704f-e293-6198128449d7",
+          "number": "INC9000160",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:20:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:19:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 161",
+            "state": "new"
+          },
+          "id": "08ff22e7-edad-6b66-2cb9-6d03848fae30",
+          "number": "INC9000161",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:19:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:18:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 162",
+            "state": "new"
+          },
+          "id": "e4b7403f-cc2f-6d94-aab7-5844048b41f2",
+          "number": "INC9000162",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:18:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:17:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 163",
+            "state": "new"
+          },
+          "id": "7294825c-507f-c1c7-c023-5461534e12a2",
+          "number": "INC9000163",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:17:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:16:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 164",
+            "state": "new"
+          },
+          "id": "b3a6fc65-37b1-986b-af4d-99b1c5a5e70d",
+          "number": "INC9000164",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:16:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:15:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 165",
+            "state": "new"
+          },
+          "id": "1faefa20-a880-5151-fa33-afd39e764a3d",
+          "number": "INC9000165",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:15:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:14:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 166",
+            "state": "new"
+          },
+          "id": "446bac99-43b1-83ad-52e2-be650a4549fc",
+          "number": "INC9000166",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:14:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:13:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 167",
+            "state": "new"
+          },
+          "id": "d19e0acf-2f63-a076-e791-39e45af4287c",
+          "number": "INC9000167",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:13:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:12:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 168",
+            "state": "new"
+          },
+          "id": "e620f930-e0b5-e218-dfe3-bf282ea881e0",
+          "number": "INC9000168",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:12:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:11:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 169",
+            "state": "new"
+          },
+          "id": "e10397d2-fed2-1240-e8b4-ffe791fe7939",
+          "number": "INC9000169",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:11:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:10:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 170",
+            "state": "new"
+          },
+          "id": "71e98c40-4406-9c31-f367-0e8a2e7068d7",
+          "number": "INC9000170",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:10:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:09:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 171",
+            "state": "new"
+          },
+          "id": "e5565ab7-e3f5-9678-1408-fe205556728f",
+          "number": "INC9000171",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:09:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:08:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 172",
+            "state": "new"
+          },
+          "id": "c49bd0cb-f4bb-c17d-a683-dd539a9a3202",
+          "number": "INC9000172",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:08:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:07:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 173",
+            "state": "new"
+          },
+          "id": "d928feab-0f86-1fc0-f78c-9ac524ca6b97",
+          "number": "INC9000173",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:07:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:06:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 174",
+            "state": "new"
+          },
+          "id": "8228e1d2-9e6f-a4f1-107a-fabaa4b895dd",
+          "number": "INC9000174",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:06:00Z",
+          "version": 2
+        },
+        {
+          "assignment_group": {
+            "id": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T21:05:00Z",
+          "data": {
+            "assignment_group": "01a22205-ba87-7657-aae5-758e793a0a4b",
+            "priority": 3,
+            "requester": "01a22205-ba82-7447-8023-50bac68e1cbe",
+            "s29_level": 3,
+            "short_description": "S29 seed 175",
+            "state": "new"
+          },
+          "id": "a787a3e1-f0ce-bec1-e685-ccee53120f94",
+          "number": "INC9000175",
+          "schema_version": 4,
+          "state": "new",
+          "updated_at": "2026-10-31T21:05:00Z",
+          "version": 2
+        }
+      ],
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTMxIDIxOjA1OjAwKzAwIiwiaSI6ImE3ODdhM2UxLWYwY2UtYmVjMS1lNjg1LWNjZWU1MzEyMGY5NCJ9.1NEh9eiDHbRdjp1e474nv3Rya7fWqJPYHTMbl3No-B4",
+      "total": 1000,
+      "total_capped": true,
+      "total_state": "capped"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "the poison record is listed",
+      "status": "pass"
+    },
+    {
+      "test": "the same records as at once (S29.11)",
+      "status": "pass"
+    },
+    {
+      "test": "every page capped at 1,000 or unknown with a null total",
+      "status": "pass"
+    }
+  ]
+}

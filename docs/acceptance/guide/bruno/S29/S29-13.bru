@@ -1,0 +1,66 @@
+meta {
+  name: S29.13 AC2: the rewritten tickets hold 3, version +1, updated_at unchanged, one schema-backfill history entry; the 50 untouched
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const ids = { missing: N.v('s29_sample_missing').split(','), held: N.v('s29_sample_held').split(','), poison: [N.v('s29_poison_id')] };
+  const out = {};
+  for (const [k, list] of Object.entries(ids)) {
+    out[k] = [];
+    for (const id of list) {
+      const r = await T.read('admin_a_token', 'incident', id);
+      const h = await T.history('admin_a_token', 'incident', id);
+      out[k].push({ id, status: r.status, version: r.data && r.data.version, updated_at: r.data && r.data.updated_at,
+                    s29_level: r.data && r.data.data && r.data.data.s29_level, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
+                    history: (h.data && h.data.items || []).map(i => ({ id: i.id, source: i.source, actor: i.actor_system || i.actor_id || null, action: i.action, raw: JSON.stringify(i).includes('schema-backfill') })) });
+    }
+  }
+  bru.setVar('s29_after', JSON.stringify(out));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = JSON.parse(bru.getVar('s29_before')), a = JSON.parse(bru.getVar('s29_after'));
+  const by = (l) => Object.fromEntries(l.map(r => [r.id, r]));
+  const bm = by(b.missing), bh = by(b.held), bp = by(b.poison);
+  test('each rewritten record: s29_level 3, version + 1, same updated_at', () => a.missing.forEach(r => {
+    expect(r.s29_level, r.id).to.eql(3);
+    expect(r.version, r.id).to.eql(bm[r.id].version + 1);
+    expect(r.updated_at, r.id).to.eql(bm[r.id].updated_at);
+  }));
+  test('each rewritten record: exactly one new history entry, an update with source system (verify.sql: its audit actor_system is schema-backfill)', () => a.missing.forEach(r => {
+    const seen = new Set(bm[r.id].history.map(h => h.id));
+    const added = r.history.filter(h => !seen.has(h.id));
+    expect(added.length, r.id).to.eql(1);
+    expect(added[0].source, JSON.stringify(added[0])).to.eql('system');
+    expect(added[0].action, JSON.stringify(added[0])).to.eql('update');
+  }));
+  test('the records that held a s29_level: same version, same updated_at, no new history entry', () => a.held.forEach(r => {
+    expect(r.version, r.id).to.eql(bh[r.id].version);
+    expect(r.updated_at, r.id).to.eql(bh[r.id].updated_at);
+    expect(r.history.length, r.id).to.eql(bh[r.id].history.length);
+  }));
+  test('the poison record: same version, no new history entry', () => a.poison.forEach(r => {
+    expect(r.version).to.eql(bp[r.id].version);
+    expect(r.history.length).to.eql(bp[r.id].history.length);
+  }));
+}
+
+docs {
+  The same samples as S29.9. A rewritten record: `s29_level` 3 stored, `version` one more (its ETag), the same `updated_at` (ADR-009 D5) and exactly one new history entry, from `schema-backfill`. A record that already held a s29_level: the same version and no new entry. The poison record: unchanged (S29.14).
+}

@@ -1,0 +1,27 @@
+meta {
+  name: S29.21 AC6: tenant B's incident type shows no tenant A job
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test("no backfill on tenant B's type", () => expect(b.backfill == null).to.eql(true));
+  test("tenant B's s29_level has no s29 version: no s29_tier", () => expect(b.schema.properties).to.not.have.property('s29_tier'));
+}
+
+docs {
+  Tenant B has its own `incident` type (the same key). It never had a default-adding publish, so it has no `backfill`, and nothing of tenant A's job.
+}

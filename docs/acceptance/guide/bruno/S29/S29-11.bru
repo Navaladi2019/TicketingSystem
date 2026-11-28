@@ -1,0 +1,49 @@
+meta {
+  name: S29.11 AC1: at once, filter[s29_level]=3 lists every ticket without s29_level plus those holding 3
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[s29_level]=3&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const all = await T.all('alice_token', 'incident', 'filter[s29_level]=3');
+  const t = await T.type('admin_a_token', 'incident');
+  bru.setVar('s29_at_once', JSON.stringify({ status: all.status, ids: all.ids, totals: all.totals, backfill: t.data.backfill,
+    stored: all.items.filter(i => i.data.s29_level !== undefined && i.data.s29_level !== 3).map(i => i.id) }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const T = require('./lib/kit')(N, bru);
+  const o = JSON.parse(bru.getVar('s29_at_once'));
+  const want = Number(N.v('s29_p3_n'));
+  test(`job state ${o.backfill && o.backfill.state}: pending, filling or running, with counts`, () => {
+    expect(['pending', 'filling', 'running', 'done', 'failed_records']).to.include(o.backfill.state);
+    ['rewritten', 'skipped', 'failed', 'remaining'].forEach(k => expect(Number.isInteger(o.backfill[k]), k).to.eql(true));
+  });
+  test(`${o.ids.length} records listed; the JSON scan with the default applied has ${want}`, () => expect(o.ids.length).to.eql(want));
+  test('the same records (md5 of the sorted ids)', () => expect(T.md5(o.ids)).to.eql(N.v('s29_p3_md5')));
+  test('no record listed twice', () => expect(new Set(o.ids).size).to.eql(o.ids.length));
+  test(`over 1,000 matches (${want}): every page capped at 1,000 or unknown with a null total, never exact`, () => {
+    expect(want).to.be.above(1000);
+    o.totals.forEach((x, i) => expect(T.bigTotal(x), 'page ' + (i + 1)).to.eql(null));
+  });
+  console.log('S29.11 pages', o.totals.length, 'unknown', o.totals.filter(x => x.total_state === 'unknown').length);
+  test('every listed record reads s29_level 3 (effective value, D11)', () => expect(o.stored).to.eql([]));
+}
+
+docs {
+  Right after S29.10, whatever the job's state: every page of `filter[s29_level]=3` as Alice. The want is expect.sql's count: tenant A incidents with no `s29_level` stored, plus those that store 3 (D12's `OR <absent>` window). A list never reports a `total` over 1,000 (ADR-006-A2; the Technical Lead corrected the story wording on TICK-915). Every page must answer either `capped` with `total` 1,000 and `total_capped: true`, or `unknown` with `total` a JSON null. `exact`, or a `total` under 1,000, fails. The number of `unknown` pages is logged (A2-8(7)).
+}

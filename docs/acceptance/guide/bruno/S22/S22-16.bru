@@ -1,0 +1,40 @@
+meta {
+  name: S22.16 AC2: a sixth flagged field: 422 index_quota_exceeded
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/{{s22_qkey}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s22-{{s22_run}}-quota-6th
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const d = JSON.parse(bru.getVar('s22_qdef'));
+  d.schema.properties.q6['x-nava-filterable'] = true;
+  req.setBody({ definition: d });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('index_quota_exceeded', 422);
+  N.fieldError('/definition/schema/properties/q6');
+}
+
+docs {
+  Flagging `q6` makes 6 on one type, over the default limit of 5. Nothing is written; `errors[]` points at the newly flagged property.
+}

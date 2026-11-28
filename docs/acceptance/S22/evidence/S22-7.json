@@ -1,0 +1,85 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/s22_asset",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "key": "s22_asset",
+      "name": "S22 asset",
+      "number_prefix": "SAST",
+      "numbering_mode": "gaps",
+      "version": 1,
+      "current": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "state"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "s22_code": {
+            "type": "string",
+            "title": "Code",
+            "maxLength": 16
+          }
+        }
+      },
+      "schema_sha256": "61881b3ac3c4060d840d2549eee35d252a9be5aa5b41f171ef73b042cdaa85f6",
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      },
+      "compat": "initial",
+      "number_format": null,
+      "published_at": "2026-11-28T11:59:27.439747Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "s22_code is a string, not flagged yet",
+      "status": "pass"
+    }
+  ]
+}

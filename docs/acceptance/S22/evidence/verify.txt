@@ -1,0 +1,10 @@
+Output format is unaligned.
+SELECT 1
+check|s22_code registry rows (1, ready)|1 ready|ok
+check|orphan side rows (no registry row), every tenant and table|0|ok
+check|s22_code side rows against the JSON (records missing surplus)|20003 0 0|ok
+check|tenant A tenant_limits.filterable_fields_per_type|10|ok
+check|tenant B tenant_limits rows|0|ok
+check|tenant_limits audit entries for tenant A (exactly 1)|1|ok
+check|that entry carries the reason and an operator actor|1|ok
+audit|2026-11-28 12:00:52.119576+00|config|update|tenant_limits|{"tenant_id":"00000000-0000-4000-8000-0000000000a1","id":"01a22207-959b-7da1-9e2e-a5f41b3e1ca2","occurred_at":"2026-11-28T12:00:52.119576+00:00","txid":"3857","domain":"config","action":"update","subject_type":"tenant_limits","subject_id":"00000000-0000-4000-8000-0000000000a1","entity_definition_id":null,"version_before":null,"version_after":null,"actor_principal_id":null,"actor_system":"operator:00000000-0000-4000-8000-00000000f001","source":"system","source_ref":null,"change_set_id":null,"causation_id":null,"causation_depth":0,"request_id":"e3389a2fa682aacd11cdb5dd86de533a","backfilled":false,"content_sha256":"\\x853dcc7bfb266093ab37d5b1e3bf170b76ebb9416e17895f8485e5c5b40cdca2","diff_sha256":"\\x3a5ac779a003d02efe918e6196a29908398bcff1c0c304add60bc6c196f447c2","diff_truncated":false,"diff":[{"op":"replace","path":"/filterable_fields_per_type","value":10},{"op":"add","path":"/reason","value":"S22 acceptance: measured cost check (TICK-754)"}],"diff_salt":"\\x2eae08115301e525bf8dd83022b280dd","seq":null,"prev_hash":null,"entry_hash":null,"sealed_at":null,"erased_at":null,"erasure_ref":null,"diff_nul_escaped":false}

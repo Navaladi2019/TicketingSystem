@@ -237,6 +237,43 @@ SELECT d.tenant_id AS tenant, a.version AS incident_acl_version, a.published_by 
   FROM acl_versions a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.entity_definition_id
  WHERE d.tenant_id IN ('$A', '$B') AND d.key = 'incident' ORDER BY 1, 2;
 SQL
+# The seed templates flag x-nava-filterable fields (S22, TICK-752: priority on
+# incident and request, risk on change). Onboarding registers them
+# (entitytypes.Store.RegisterSeedFilterable: a registry row and a backfill);
+# this script inserts the types directly, so it registers them itself
+# (TICK-754). The seeded types have no records yet, so a backfill would copy
+# nothing: each row goes straight to `ready`, which is where that backfill
+# ends. Refuses a type that already has records, and leaves a field that is
+# already registered alone (idempotent).
+echo "seed: field-index registry rows for the template-flagged fields in A and B"
+dc exec -T postgres sh -c   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
+DO \$\$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM entity_definitions d
+      JOIN entity_definition_versions v ON v.tenant_id = d.tenant_id AND v.definition_id = d.id AND v.version = d.current_version
+      CROSS JOIN LATERAL jsonb_each(v.schema::jsonb->'properties') p(key, prop)
+     WHERE d.tenant_id IN ('$A', '$B') AND (p.prop->>'x-nava-filterable')::boolean
+       AND NOT EXISTS (SELECT 1 FROM record_index_fields f WHERE f.tenant_id = d.tenant_id AND f.entity_definition_id = d.id AND f.field_key = p.key)
+       AND EXISTS (SELECT 1 FROM records r WHERE r.tenant_id = d.tenant_id AND r.entity_definition_id = d.id)) THEN
+    RAISE EXCEPTION 'seed: a seeded type with an unregistered flagged field already has records; drop the volumes and seed again';
+  END IF;
+END \$\$;
+INSERT INTO record_index_fields (tenant_id, id, entity_definition_id, field_key, value_type, state, progress, requested_version)
+SELECT d.tenant_id, gen_random_uuid(), d.id, p.key,
+       CASE WHEN p.prop->>'type' IN ('integer', 'number') THEN 'num'
+            WHEN p.prop->>'type' = 'boolean' THEN 'bool'
+            WHEN p.prop->>'format' IN ('date-time', 'date') THEN 'ts'
+            ELSE 'text' END,
+       'ready', 100, d.current_version
+  FROM entity_definitions d
+  JOIN entity_definition_versions v ON v.tenant_id = d.tenant_id AND v.definition_id = d.id AND v.version = d.current_version
+  CROSS JOIN LATERAL jsonb_each(v.schema::jsonb->'properties') p(key, prop)
+ WHERE d.tenant_id IN ('$A', '$B') AND (p.prop->>'x-nava-filterable')::boolean
+ON CONFLICT (tenant_id, entity_definition_id, field_key) DO NOTHING;
+SELECT f.tenant_id AS tenant, d.key, f.field_key, f.value_type, f.state
+  FROM record_index_fields f JOIN entity_definitions d ON d.tenant_id = f.tenant_id AND d.id = f.entity_definition_id
+ WHERE f.tenant_id IN ('$A', '$B') ORDER BY 1, 2, 3;
+SQL
 echo "seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;"
 echo "seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change."
 echo "seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one."

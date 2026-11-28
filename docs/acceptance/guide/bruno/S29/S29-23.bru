@@ -1,0 +1,29 @@
+meta {
+  name: S29.23 AC6: tenant B reads a tenant A ticket: 404
+  type: http
+  seq: 23
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s29_poison_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+}
+
+docs {
+  The poison record, by id, as tenant B's admin: the same 404 as a record that does not exist (`not_found`, no `instance`).
+}

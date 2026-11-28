@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident?filter[description]=S21%20internal%20note%201",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[description]=S21%20internal%20note%201",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -20,7 +20,7 @@
       "status": 400,
       "code": "masked_field",
       "detail": "The query filters, sorts, counts or aggregates on a field the entity type's access policy hides from you. See errors for the field.",
-      "instance": "urn:nava:request:9b47992325bb5e46dc27ec5b1decbae7",
+      "instance": "urn:nava:request:73dc722e11da8e46c264e4d0cf960600",
       "errors": [
         {
           "pointer": "/description",

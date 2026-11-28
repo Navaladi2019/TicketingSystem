@@ -1,0 +1,2 @@
+{"time":"2026-11-28T03:45:33.896353218Z","level":"INFO","msg":"Started Worker","Namespace":"nava","TaskQueue":"schema-backfill","WorkerID":"1@3d2f8ee0c8eb@"}
+{"time":"2026-11-28T03:48:31.849052203Z","level":"INFO","msg":"field index removed","tenant_id":"00000000-0000-4000-8000-0000000000a1","field_id":"3a3b363f-d295-49bd-92de-7523be896639","workflow_id":"t:00000000-0000-4000-8000-0000000000a1:field_index.remove.run:3a3b363f-d295-49bd-92de-7523be896639:2","trace_id":"01c0fafb97037c8433497d59f88717fc","span_id":"e15a2b2ddd26a282"}

@@ -1,0 +1,1 @@
+{"time":"2026-11-28T12:00:24.357502611Z","level":"INFO","msg":"field index removed","tenant_id":"00000000-0000-4000-8000-0000000000a1","field_id":"01a22206-8075-79f7-99bd-d25f26b7a49a","workflow_id":"t:00000000-0000-4000-8000-0000000000a1:field_index.remove.run:01a22206-8075-79f7-99bd-d25f26b7a49a:3","trace_id":"3b569348cfaa2fd413e3852143b5fd37","span_id":"d592873e250ab299"}

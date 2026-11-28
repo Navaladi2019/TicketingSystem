@@ -1,0 +1,31 @@
+meta {
+  name: S22.7 The kit's type s22_asset: s22_code not flagged, 20,000 seeded records
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/s22_asset
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('s22_code is a string, not flagged yet', () => {
+    expect(b.schema.properties.s22_code.type).to.eql('string');
+    expect(b.schema.properties.s22_code['x-nava-filterable']).to.not.eql(true);
+  });
+  bru.setVar('s22_prev', String(b.version));
+  bru.setVar('s22_def', JSON.stringify({ schema: b.schema, fixed_columns: b.fixed_columns, states: b.states }));
+}
+
+docs {
+  kit.mjs setup created `s22_asset` (prefix SAST) with an optional `s22_code` (string), not flagged; seed.sql wrote 20,000 records at that version, 1,000 per value K00..K19. Kept for the publishes below: the current schema, fixed columns and states.
+}

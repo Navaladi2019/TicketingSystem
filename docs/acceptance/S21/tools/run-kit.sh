@@ -87,6 +87,17 @@ fi
 
 echo "s21: 2. due_at and the description mask ($(stamp))"
 node "$T/kit.mjs" setup "$EV"
+# Since TICK-752 the seed template flags priority, and setup's publish removes
+# that flag (ADR-006 D11). Wait for the removal to delete the registry row:
+# seed.sql must write with no field flagged, and S21.8 would answer 409
+# field_index_busy while the removal runs.
+i=0
+until [ "$(psqlf -At -c "SELECT count(*) FROM record_index_fields f JOIN entity_definitions d ON d.tenant_id = f.tenant_id AND d.id = f.entity_definition_id WHERE f.tenant_id = '00000000-0000-4000-8000-0000000000a1' AND d.key = 'incident'" < /dev/null | tr -d '\r ')" = 0 ]; do
+  i=$((i + 1))
+  if [ "$i" -gt 120 ]; then echo "s21: tenant A's incident index rows were not removed within 240 s" >&2; exit 1; fi
+  sleep 2
+done
+echo "s21: no incident field flagged before the seed (waited $((i * 2)) s)"
 
 echo "s21: 3. 400k incidents in tenant A, 50 in tenant B ($(stamp))"
 start=$(date +%s)

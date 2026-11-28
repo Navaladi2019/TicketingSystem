@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "PUT",
+    "url": "http://127.0.0.1:18082/api/v1/operator/tenants/22222222-2222-4222-8222-222222222222/limits",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "77",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18082",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s22-0857aec9-limit-unknown",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"filterable_fields_per_type\": 10,\n  \"reason\": \"S22 kit: unknown tenant\"\n}"
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist.",
+      "instance": "urn:nava:request:554b9b9d383a0a46a6be2b7fbe62e87c"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 404",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code not_found",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

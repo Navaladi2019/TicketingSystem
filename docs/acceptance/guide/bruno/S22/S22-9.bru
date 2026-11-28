@@ -1,0 +1,37 @@
+meta {
+  name: S22.9 Once indexed, filter[s22_code]=K07 lists its 1,000 records
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/records/s22_asset?filter[s22_code]=K07&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const ss = await T.until(async () => { const r = await T.list('admin_a_token', 's22_asset', 'filter[s22_code]=K07&limit=1'); return { status: r.status, progress: r.data && r.data.index_progress }; },
+                           s => s.status !== 422, { every: 3000, limit: 900000 });
+  const all = await T.all('admin_a_token', 's22_asset', 'filter[s22_code]=K07');
+  bru.setVar('s22_indexed', JSON.stringify({ ss, status: all.status, ids: all.ids, codes: [...new Set(all.items.map(i => i.data.s22_code))], broken: all.broken }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const o = JSON.parse(bru.getVar('s22_indexed'));
+  test(`ready after ${o.ss[o.ss.length - 1].at_s} s`, () => expect(o.ss[o.ss.length - 1].status).to.eql(200));
+  test('every answer while indexing was 422', () => o.ss.slice(0, -1).forEach(s => expect(s.status).to.eql(422)));
+  test('exactly the 1000 seeded K07 records, each K07', () => { expect(o.ids.length).to.eql(1000); expect(o.codes).to.eql(['K07']); expect(o.broken).to.eql([]); });
+}
+
+docs {
+  Polls every 3 s until the field answers 200 (at most 15 minutes), then reads every page.
+}

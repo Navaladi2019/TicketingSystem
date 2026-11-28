@@ -1,0 +1,27 @@
+meta {
+  name: S22.4 AC3: the seeded incident type flags priority x-nava-filterable
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const p = N.json().schema.properties;
+  test('priority is flagged x-nava-filterable in the seed template', () => expect(p.priority['x-nava-filterable']).to.eql(true));
+  console.log('S22.4 flagged incident fields', Object.keys(p).filter(k => p[k]['x-nava-filterable']).join(','));
+}
+
+docs {
+  TICK-752 flags, in the seed templates, every data field the earlier kits filter on. On the incident type that is `priority` (S9, S10, S21). A fresh stack's tenant A has it flagged from its first version, with no publish by the kit.
+}

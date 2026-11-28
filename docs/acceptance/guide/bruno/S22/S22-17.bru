@@ -1,0 +1,33 @@
+meta {
+  name: S22.17 AC2: the tenant admin cannot raise its own limit: 403 forbidden
+  type: http
+  seq: 17
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s22-{{s22_run}}-limit-admin
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 10,
+    "reason": "S22 kit: a tenant admin tries"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  `setTenantLimits` takes an operator token only (TICK-751 scope 3, built in TICK-916). A tenant admin's token is 403, and nothing is written: verify.sql counts one audit entry, S22.22's.
+}

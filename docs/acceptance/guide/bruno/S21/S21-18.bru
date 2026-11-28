@@ -33,5 +33,5 @@ tests {
 }
 
 docs {
-  Tenant B has 50 incidents, all priority 1. Bob's own list finds them (B flagged nothing, so `priority` is still the seed type's legacy scan there, PLAN-007 D-7-6), and none of them is among the admin's S21.13 rows: tenant A's count is the tenant A scan, not the all-tenant one.
+  Tenant B has 50 incidents, all priority 1. Bob's own list finds them (since S22, TICK-752, tenant B's seed type flags `priority` too, so it reads B's own index; kit.mjs setup creates the 50 through the API), and none of them is among the admin's S21.13 rows: tenant A's count is the tenant A scan, not the all-tenant one.
 }

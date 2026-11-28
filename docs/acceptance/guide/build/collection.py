@@ -4276,7 +4276,7 @@ test('the same status and body as a value that exists nowhere', () => { expect(o
 test('the control value she may read: total 1, exact', () => { expect(o.control.status).to.eql(200); expect(o.control.total).to.eql(1); expect(o.control.total_state).to.eql('exact'); });"""),
             req("S21.18 AC5: tenant B's priority-1 records never match tenant A's filter", "GET", inc + "?filter[priority]=1&limit=200", auth="bob_token",
                 pre=S21_T + "\nawait T.fresh('bob_token');",
-                desc="Tenant B has 50 incidents, all priority 1. Bob's own list finds them (B flagged nothing, so `priority` is still the seed type's legacy scan there, PLAN-007 D-7-6), and none of them is among the admin's S21.13 rows: tenant A's count is the tenant A scan, not the all-tenant one.",
+                desc="Tenant B has 50 incidents, all priority 1. Bob's own list finds them (since S22, TICK-752, tenant B's seed type flags `priority` too, so it reads B's own index; kit.mjs setup creates the 50 through the API), and none of them is among the admin's S21.13 rows: tenant A's count is the tenant A scan, not the all-tenant one.",
                 tests="""N.status(200);
 const b = N.json();
 const mine = b.items.map(i => i.id);
@@ -5681,7 +5681,19 @@ console.log('S31B.9 total', N.json().total);""")),
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s21, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, s32, s31, s31_after, late]
+# S22 and S29 (TICK-754): docs/acceptance/guide/build/kits_s22_s29.py.
+import kits_s22_s29  # noqa: E402  (build.py puts this folder on sys.path)
+
+
+def s22():
+    return kits_s22_s29.s22(req, token, problem_req)
+
+
+def s29():
+    return kits_s22_s29.s29(req, token, problem_req)
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s21, s22, s29, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, s32, s31, s31_after, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),
@@ -5810,6 +5822,7 @@ def write(out):
     _write(os.path.join(out, "lib", "nava.js"), LIB.lstrip("\n").replace("__REGISTERED__", codes))
     _write(os.path.join(out, "lib", "s15.js"), LIB_S15)
     _write(os.path.join(out, "lib", "s21.js"), LIB_S21)
+    _write(os.path.join(out, "lib", "kit.js"), kits_s22_s29.LIB_KIT)
     _write(os.path.join(out, "environments", "local.bru"),
            "vars {\n" + "".join(f"  {k}: {v}\n" for k, v in ENV) + "}\n")
     for i, f in enumerate(folders, 1):

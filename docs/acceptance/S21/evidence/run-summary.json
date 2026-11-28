@@ -1,6 +1,6 @@
 {
   "requests": 19,
-  "tests": 99,
+  "tests": 113,
   "failed": 5,
   "results": [
     {
@@ -236,7 +236,7 @@
           "status": "pass"
         },
         {
-          "test": "both fields ready after 1089 s and 73 polls",
+          "test": "both fields ready after 1238 s and 83 polls",
           "status": "pass"
         },
         {
@@ -266,7 +266,7 @@
           "status": "pass"
         },
         {
-          "test": "total 10",
+          "test": "total 10, exact: a short first page (A2-4)",
           "status": "pass"
         },
         {
@@ -300,7 +300,11 @@
           "status": "pass"
         },
         {
-          "test": "total: exact up to 1,000, then 1,000 and total_capped",
+          "test": "every page meets the total contract (A2-1): this page capped, the limit-200 pages [\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\"]",
+          "status": "pass"
+        },
+        {
+          "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
           "status": "pass"
         },
         {
@@ -330,7 +334,11 @@
           "status": "pass"
         },
         {
-          "test": "total: exact up to 1,000, then 1,000 and total_capped",
+          "test": "every page meets the total contract (A2-1): this page exact, the limit-200 pages [\"exact\",\"exact\"]",
+          "status": "pass"
+        },
+        {
+          "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
           "status": "pass"
         },
         {
@@ -360,7 +368,11 @@
           "status": "pass"
         },
         {
-          "test": "total: exact up to 1,000, then 1,000 and total_capped",
+          "test": "every page meets the total contract (A2-1): this page exact, the limit-200 pages [\"exact\",\"exact\",\"exact\"]",
+          "status": "pass"
+        },
+        {
+          "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
           "status": "pass"
         },
         {
@@ -390,7 +402,15 @@
           "status": "pass"
         },
         {
-          "test": "total: exact up to 1,000, then 1,000 and total_capped",
+          "test": "every page meets the total contract (A2-1): this page exact, the limit-200 pages [\"exact\"]",
+          "status": "pass"
+        },
+        {
+          "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
+          "status": "pass"
+        },
+        {
+          "test": "a short result (25 < 50 matches): exact on the first page (A2-4)",
           "status": "pass"
         },
         {
@@ -412,7 +432,7 @@
           "status": "pass"
         },
         {
-          "test": "Alice: no items, total 0",
+          "test": "Alice: no items, total 0, exact (never unknown: A2-4)",
           "status": "pass"
         },
         {
@@ -420,7 +440,7 @@
           "status": "pass"
         },
         {
-          "test": "the control value she may read: total 1",
+          "test": "the control value she may read: total 1, exact",
           "status": "pass"
         }
       ]
@@ -452,68 +472,104 @@
       "status": 200,
       "tests": [
         {
-          "test": "admin filter[priority]=1: p95 426 ms <= 350 ms (p50 278, max 541)",
+          "test": "admin filter[priority]=1: p95 390 ms <= 350 ms (p50 212, max 615)",
           "status": "fail",
-          "error": "expected 426 to be at most 350"
+          "error": "expected 390 to be at most 350"
         },
         {
-          "test": "admin filter[priority]=3: p95 169 ms <= 150 ms (p50 77, max 229)",
+          "test": "admin filter[priority]=3: p95 179 ms <= 150 ms (p50 102, max 273)",
           "status": "fail",
-          "error": "expected 169 to be at most 150"
+          "error": "expected 179 to be at most 150"
         },
         {
-          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 251 ms <= 150 ms (p50 113, max 425)",
+          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 324 ms <= 150 ms (p50 192, max 566)",
           "status": "fail",
-          "error": "expected 251 to be at most 150"
+          "error": "expected 324 to be at most 150"
         },
         {
-          "test": "Alice filter[priority]=3: p95 570 ms <= 350 ms (p50 427, max 881)",
+          "test": "Alice filter[priority]=1: p95 446 ms <= 350 ms (p50 259, max 570)",
           "status": "fail",
-          "error": "expected 570 to be at most 350"
+          "error": "expected 446 to be at most 350"
         },
         {
-          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 336 ms <= 150 ms (p50 201, max 600)",
+          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 289 ms <= 150 ms (p50 139, max 418)",
           "status": "fail",
-          "error": "expected 336 to be at most 150"
+          "error": "expected 289 to be at most 150"
         },
         {
           "test": "HTTP 200",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 407 requests",
+          "test": "admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 495 requests, p50 212 p95 390 max 615 ms, from 2026-11-28T04:16:44.263Z",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 579 requests",
+          "test": "admin filter[priority]=1: every 200 meets the total contract; total_state {\"capped\":455,\"unknown\":40}, unknown 8.1%",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 561 requests",
+          "test": "admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 570 requests, p50 102 p95 179 max 273 ms, from 2026-11-28T04:17:01.503Z",
           "status": "pass"
         },
         {
-          "test": "Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 533 requests",
+          "test": "admin filter[priority]=3: every 200 meets the total contract; total_state {\"capped\":570}, unknown 0%",
           "status": "pass"
         },
         {
-          "test": "Alice filter[priority]=1: p95 299 ms <= 350 ms (p50 196, max 512)",
+          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 508 requests, p50 192 p95 324 max 566 ms, from 2026-11-28T04:17:19.026Z",
           "status": "pass"
         },
         {
-          "test": "Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 269 requests",
+          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: every 200 meets the total contract; total_state {\"exact\":508}, unknown 0%",
           "status": "pass"
         },
         {
-          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 522 requests",
+          "test": "Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 417 requests, p50 259 p95 446 max 570 ms, from 2026-11-28T04:17:36.230Z",
           "status": "pass"
         },
         {
-          "test": "admin (none) (no filter (control, reported only)): only 200s, 574 requests",
+          "test": "Alice filter[priority]=1: every 200 meets the total contract; total_state {\"exact\":393,\"unknown\":24}, unknown 5.8%",
           "status": "pass"
         },
         {
-          "test": "Alice (none) (no filter (control, reported only)): only 200s, 570 requests",
+          "test": "Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 572 requests, p50 83 p95 143 max 216 ms, from 2026-11-28T04:17:53.443Z",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=3: p95 143 ms <= 350 ms (p50 83, max 216)",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=3: every 200 meets the total contract; total_state {\"capped\":572}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=3: every total_state in [\"capped\",\"unknown\"] (unknown 0%)",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 547 requests, p50 139 p95 289 max 418 ms, from 2026-11-28T04:18:10.599Z",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: every 200 meets the total contract; total_state {\"exact\":547}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "admin (none) (no filter (control, reported only)): only 200s, 571 requests, p50 46 p95 87 max 183 ms, from 2026-11-28T04:18:27.811Z",
+          "status": "pass"
+        },
+        {
+          "test": "admin (none): every 200 meets the total contract; total_state {\"capped\":571}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "Alice (none) (no filter (control, reported only)): only 200s, 577 requests, p50 43 p95 88 max 163 ms, from 2026-11-28T04:18:45.012Z",
+          "status": "pass"
+        },
+        {
+          "test": "Alice (none): every 200 meets the total contract; total_state {\"capped\":577}, unknown 0%",
           "status": "pass"
         }
       ]

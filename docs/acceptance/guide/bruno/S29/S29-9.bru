@@ -1,0 +1,45 @@
+meta {
+  name: S29.9 Before the publish: the sampled records
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const ids = { missing: N.v('s29_sample_missing').split(','), held: N.v('s29_sample_held').split(','), poison: [N.v('s29_poison_id')] };
+  const out = {};
+  for (const [k, list] of Object.entries(ids)) {
+    out[k] = [];
+    for (const id of list) {
+      const r = await T.read('admin_a_token', 'incident', id);
+      const h = await T.history('admin_a_token', 'incident', id);
+      out[k].push({ id, status: r.status, version: r.data && r.data.version, updated_at: r.data && r.data.updated_at,
+                    s29_level: r.data && r.data.data && r.data.data.s29_level, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
+                    history: (h.data && h.data.items || []).map(i => ({ id: i.id, source: i.source, actor: i.actor_system || i.actor_id || null, action: i.action, raw: JSON.stringify(i).includes('schema-backfill') })) });
+    }
+  }
+  bru.setVar('s29_before', JSON.stringify(out));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const o = JSON.parse(bru.getVar('s29_before'));
+  test('every sampled record reads 200', () => Object.values(o).flat().forEach(r => expect(r.status, r.id).to.eql(200)));
+  test('the missing ones and the poison show no stored s29_level yet (no default in this version)', () => [...o.missing, ...o.poison].forEach(r => expect(r.s29_level, r.id).to.eql(undefined)));
+}
+
+docs {
+  Reads, as the admin, 10 sampled records without `s29_level`, 10 of the 50 with it, and the poison record: version, `updated_at`, `s29_level` and the history. S29.13 compares.
+}

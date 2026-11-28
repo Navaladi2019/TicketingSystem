@@ -1,0 +1,226 @@
+[
+  {
+    "request": "/api/v1/entity-types/incident/access",
+    "status": 200
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  },
+  {
+    "request": "/api/v1/records/incident",
+    "status": 201
+  }
+]

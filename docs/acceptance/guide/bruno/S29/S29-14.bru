@@ -1,0 +1,33 @@
+meta {
+  name: S29.14 AC3: the admin lists the failures: the poison record's id and a code, never a value
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/backfill/failures
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items || [];
+  const poison = N.v('s29_poison_id');
+  test('exactly one failure: the poison record', () => expect(items.map(i => i.record_id || i.id)).to.eql([poison]));
+  test('a code, such as validation_failed', () => expect(items[0].code).to.match(/^[a-z_]{1,64}$/));
+  test('no field value in the body', () => {
+    const text = JSON.stringify(N.json());
+    expect(text).to.not.include('S29 poison');
+    expect(text).to.not.include('short_description');
+  });
+}
+
+docs {
+  ADR-009 D10: `GET /entity-types/{key}/backfill/failures` for an entity-type admin. The poison record (its `short_description` breaks the schema's `maxLength` of 160) is listed with its id and an error code such as `validation_failed`; no field value appears anywhere in the body.
+}

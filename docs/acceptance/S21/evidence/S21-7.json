@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident?filter[due_at]=2026-03-01T00:00:00Z",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[due_at]=2026-03-01T00:00:00Z",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -20,7 +20,7 @@
       "status": 400,
       "code": "field_not_filterable",
       "detail": "The list filters on a data field that is not flagged x-nava-filterable in this entity type. Nothing was read. See errors for the field.",
-      "instance": "urn:nava:request:de922f39fcd1089285b82b8abe6e3215",
+      "instance": "urn:nava:request:d29987448ddbb29dfc52c2871ac63147",
       "errors": [
         {
           "pointer": "/filter/due_at",

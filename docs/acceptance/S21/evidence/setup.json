@@ -80,7 +80,7 @@
             }
           }
         },
-        "schema_sha256": "3cb24cd57f4e728513c69d0a134b0e02f2e5399afdf9f2a1c48ad74ceb151c4f",
+        "schema_sha256": "461fdade5c60b9e9fbbad51cd4d7b373b7fbfdeee72592706c2eeb7a0b2ca0d0",
         "fixed_columns": {
           "assignee": "assignee_id",
           "assignment_group": "assignment_group_id",
@@ -116,7 +116,7 @@
         },
         "compat": "initial",
         "number_format": null,
-        "published_at": "2026-11-20T18:02:58.686876Z"
+        "published_at": "2026-11-28T03:48:14.911192Z"
       }
     }
   },
@@ -126,7 +126,7 @@
       "path": "/api/v1/entity-types/incident/versions",
       "headers": {
         "Content-Type": "application/json",
-        "Idempotency-Key": "s21-setup-7da6f611-2d0c-46da-8edb-180188937055"
+        "Idempotency-Key": "s21-setup-a945f1c8-c988-44fd-93f2-c55a06ce77f6"
       },
       "body": {
         "definition": {
@@ -340,7 +340,7 @@
         },
         "compat": "compatible",
         "number_format": null,
-        "published_at": "2026-11-20T18:03:01.036821Z"
+        "published_at": "2026-11-28T03:48:31.027328Z"
       }
     }
   },
@@ -357,16 +357,16 @@
       "body": {
         "group_paths": [
           {
-            "id": "01a1fa20-3369-7196-a6c8-23390d5a1245",
+            "id": "01a22044-694e-766f-8352-fe46fe58cd46",
             "path": "/admins"
           }
         ],
         "groups": [
-          "01a1fa20-3369-7196-a6c8-23390d5a1245"
+          "01a22044-694e-766f-8352-fe46fe58cd46"
         ],
         "idp_alias": "",
         "tenant_id": "00000000-0000-4000-8000-0000000000a1",
-        "user_id": "01a1fa20-3365-703b-a45f-cb75aca40256"
+        "user_id": "01a22044-6949-7208-b364-5eaaa88fd491"
       }
     }
   },
@@ -399,7 +399,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                            "01a22044-694e-766f-8352-fe46fe58cd46"
                           ]
                         }
                       }
@@ -421,7 +421,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a1fa20-3369-71b7-b27f-9b2a7f388b7a"
+                            "01a22044-694e-76a2-af03-5265d61f0ac5"
                           ]
                         }
                       }
@@ -493,7 +493,7 @@
         },
         "masks": [],
         "published_by": null,
-        "published_at": "2026-11-20T18:02:59.470442Z"
+        "published_at": "2026-11-28T03:48:17.10285Z"
       }
     }
   },
@@ -504,7 +504,7 @@
       "headers": {
         "If-Match": "W/\"1\"",
         "Content-Type": "application/json",
-        "Idempotency-Key": "s21-setup-0df815e1-ad51-47d2-a089-38071b432c00"
+        "Idempotency-Key": "s21-setup-a4035723-780d-48e0-8987-47f80cf33e04"
       },
       "body": {
         "rules": {
@@ -524,7 +524,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                            "01a22044-694e-766f-8352-fe46fe58cd46"
                           ]
                         }
                       }
@@ -546,7 +546,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a1fa20-3369-71b7-b27f-9b2a7f388b7a"
+                            "01a22044-694e-76a2-af03-5265d61f0ac5"
                           ]
                         }
                       }
@@ -621,12 +621,12 @@
             "field": "description",
             "read": {
               "groups": [
-                "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                "01a22044-694e-766f-8352-fe46fe58cd46"
               ]
             },
             "write": {
               "groups": [
-                "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                "01a22044-694e-766f-8352-fe46fe58cd46"
               ]
             }
           }
@@ -655,7 +655,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                            "01a22044-694e-766f-8352-fe46fe58cd46"
                           ]
                         }
                       }
@@ -677,7 +677,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a1fa20-3369-71b7-b27f-9b2a7f388b7a"
+                            "01a22044-694e-76a2-af03-5265d61f0ac5"
                           ]
                         }
                       }
@@ -752,18 +752,1818 @@
             "field": "description",
             "read": {
               "groups": [
-                "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                "01a22044-694e-766f-8352-fe46fe58cd46"
               ]
             },
             "write": {
               "groups": [
-                "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                "01a22044-694e-766f-8352-fe46fe58cd46"
               ]
             }
           }
         ],
-        "published_by": "01a1fa20-3365-703b-a45f-cb75aca40256",
-        "published_at": "2026-11-20T18:03:01.09265Z"
+        "published_by": "01a22044-6949-7208-b364-5eaaa88fd491",
+        "published_at": "2026-11-28T03:48:31.126886Z"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-3d040251-2d8c-4770-8d3a-be275805695c"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 1",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.362204Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 1",
+          "state": "new"
+        },
+        "id": "01a22044-d3ff-73e5-adde-f63c257c79c5",
+        "number": "INC0000001",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.362204Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-8a23f670-46b4-4573-a397-fbe8c2ed1470"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 2",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.417819Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 2",
+          "state": "new"
+        },
+        "id": "01a22044-d437-7a93-90d5-fd8bf7567b85",
+        "number": "INC0000002",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.417819Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-9a823875-7057-486a-aaf6-452fdfa01dae"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 3",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.461931Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 3",
+          "state": "new"
+        },
+        "id": "01a22044-d463-7b6e-ad91-b24bdbf6a0d1",
+        "number": "INC0000003",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.461931Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-304712b2-139a-4e12-a3a8-d5913ed69d87"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 4",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.499357Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 4",
+          "state": "new"
+        },
+        "id": "01a22044-d488-7474-a804-bc0f238d7b19",
+        "number": "INC0000004",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.499357Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-eb749843-238b-4f48-93af-d08831118289"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 5",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.53581Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 5",
+          "state": "new"
+        },
+        "id": "01a22044-d4ad-7811-bce2-0e8d32056983",
+        "number": "INC0000005",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.53581Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-30882f17-00d5-476d-9df5-55a03f100f7f"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 6",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.573251Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 6",
+          "state": "new"
+        },
+        "id": "01a22044-d4d2-79e0-bea4-32b345898a0c",
+        "number": "INC0000006",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.573251Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-a8fd9230-6015-4e1f-8f0c-370df92154f5"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 7",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.613061Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 7",
+          "state": "new"
+        },
+        "id": "01a22044-d4f9-79af-89d7-86221fb9ccec",
+        "number": "INC0000007",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.613061Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-fd026889-57d4-40b3-a942-2f026d764c2a"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 8",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.657502Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 8",
+          "state": "new"
+        },
+        "id": "01a22044-d526-739c-a7d4-4eaaba48f1e3",
+        "number": "INC0000008",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.657502Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-4157eeef-e04c-48a8-bf1f-5889df46d59d"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 9",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.697335Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 9",
+          "state": "new"
+        },
+        "id": "01a22044-d54e-78bb-9666-e2d3ea4e996e",
+        "number": "INC0000009",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.697335Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-ae2fa32f-edab-4dd1-b504-007f40347d3f"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 10",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.735385Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 10",
+          "state": "new"
+        },
+        "id": "01a22044-d575-72df-b014-4670e48c947c",
+        "number": "INC0000010",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.735385Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-d8805cfd-705a-4fa6-9638-d3688c75d7c8"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 11",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.773733Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 11",
+          "state": "new"
+        },
+        "id": "01a22044-d59b-7304-8ede-897507e1274b",
+        "number": "INC0000011",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.773733Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-15a51491-faf3-487e-83e1-11267d052f1b"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 12",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.82175Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 12",
+          "state": "new"
+        },
+        "id": "01a22044-d5cb-729f-a606-927bf25e6183",
+        "number": "INC0000012",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.82175Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-827495de-14f5-41f0-9728-eae0efb46828"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 13",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.857937Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 13",
+          "state": "new"
+        },
+        "id": "01a22044-d5ef-77ef-80f3-2e7734074773",
+        "number": "INC0000013",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.857937Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-a51d7a8a-fe92-4c11-9957-955b00b01ac0"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 14",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.895671Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 14",
+          "state": "new"
+        },
+        "id": "01a22044-d615-7678-9b8f-2deb2ec9306f",
+        "number": "INC0000014",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.895671Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-78dec5e7-e430-47aa-a704-e8915dd02518"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 15",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.938102Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 15",
+          "state": "new"
+        },
+        "id": "01a22044-d63f-7cba-9c37-0bb4882b7ce8",
+        "number": "INC0000015",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.938102Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-a88a7eb8-ef63-460a-9b58-70253910ec99"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 16",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:31.973603Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 16",
+          "state": "new"
+        },
+        "id": "01a22044-d663-74b9-9965-650d3ba7e868",
+        "number": "INC0000016",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:31.973603Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-39f5d159-9bcb-4ca8-82da-b9e99c82b38f"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 17",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.011888Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 17",
+          "state": "new"
+        },
+        "id": "01a22044-d689-7657-82ed-9b1eead2e2b6",
+        "number": "INC0000017",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.011888Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-cfeec2c7-8c8b-41a7-9209-fa372771bb22"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 18",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.054459Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 18",
+          "state": "new"
+        },
+        "id": "01a22044-d6b3-784d-b55c-7cca8307b54a",
+        "number": "INC0000018",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.054459Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-85978715-887d-4dd4-a302-061b74fd8d7f"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 19",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.100809Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 19",
+          "state": "new"
+        },
+        "id": "01a22044-d6df-7aac-bf7d-944b8f8edbc9",
+        "number": "INC0000019",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.100809Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-cb04dbdc-a1bc-4193-ac5a-e54796d6df20"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 20",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.143389Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 20",
+          "state": "new"
+        },
+        "id": "01a22044-d70c-79c4-8806-7fad76e93ef6",
+        "number": "INC0000020",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.143389Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-7cc45473-0d72-48cf-a3b0-a93b067093df"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 21",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.170748Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 21",
+          "state": "new"
+        },
+        "id": "01a22044-d728-7ee1-a735-2b066567e9fb",
+        "number": "INC0000021",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.170748Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-46e09d9a-1f11-4e31-9c83-7899e7d987c0"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 22",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.201618Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 22",
+          "state": "new"
+        },
+        "id": "01a22044-d747-7dce-af85-7ac6465197b0",
+        "number": "INC0000022",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.201618Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-8ba52678-c49e-4815-bc6e-a5ac8bc52d4f"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 23",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.238364Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 23",
+          "state": "new"
+        },
+        "id": "01a22044-d76b-741e-8550-d0e51a09fc4c",
+        "number": "INC0000023",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.238364Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-9cc56881-4deb-48b1-b55a-b57192c9b7cd"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 24",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.271491Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 24",
+          "state": "new"
+        },
+        "id": "01a22044-d78d-7731-8aaf-bb16bf530f2b",
+        "number": "INC0000024",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.271491Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-d65d3e48-9a7c-4577-8b05-c5173c8c2beb"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 25",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.303299Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 25",
+          "state": "new"
+        },
+        "id": "01a22044-d7ac-7bd1-96d7-f77cb17246b2",
+        "number": "INC0000025",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.303299Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-387aa1da-6975-4ba6-bda5-d49633bc7b44"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 26",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.340327Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 26",
+          "state": "new"
+        },
+        "id": "01a22044-d7d2-7658-9d78-a840ca3d396c",
+        "number": "INC0000026",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.340327Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-00c00922-6965-43f4-a688-452309a5d33c"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 27",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.371722Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 27",
+          "state": "new"
+        },
+        "id": "01a22044-d7f1-7d91-8435-133eb14e2c74",
+        "number": "INC0000027",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.371722Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-4e4454b6-9fd6-4c73-94c4-9b7ab18fd718"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 28",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.403821Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 28",
+          "state": "new"
+        },
+        "id": "01a22044-d811-7c5d-bb31-47f140e125c0",
+        "number": "INC0000028",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.403821Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-926a3d4c-534c-462f-a74b-e6d44b5f5f62"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 29",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.43472Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 29",
+          "state": "new"
+        },
+        "id": "01a22044-d830-7ae5-8f72-b52756d75eed",
+        "number": "INC0000029",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.43472Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-b41ed340-76f8-4b3a-a7a6-bcf30fbb59d4"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 30",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.462596Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 30",
+          "state": "new"
+        },
+        "id": "01a22044-d84c-7ca6-a6be-0e91131e99ce",
+        "number": "INC0000030",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.462596Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-6d470dd1-0c34-47de-834e-03ebbb66a9be"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 31",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.492763Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 31",
+          "state": "new"
+        },
+        "id": "01a22044-d86a-7a60-9e85-1fc7e19de6ab",
+        "number": "INC0000031",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.492763Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-4771aa47-4620-4e39-8124-4ac04059d37b"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 32",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.524991Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 32",
+          "state": "new"
+        },
+        "id": "01a22044-d887-77d4-8e68-ef5bce038d35",
+        "number": "INC0000032",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.524991Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-6fc9c4c0-a38d-476c-a789-0660d9c31f81"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 33",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.555682Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 33",
+          "state": "new"
+        },
+        "id": "01a22044-d8a9-7b36-8aa7-769daa79c036",
+        "number": "INC0000033",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.555682Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-0fb42845-4d7f-4e9e-b97a-6b5b1101ad47"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 34",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.584391Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 34",
+          "state": "new"
+        },
+        "id": "01a22044-d8c6-77ba-a0da-3aa616c340af",
+        "number": "INC0000034",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.584391Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-fbb3a756-0241-474d-afac-0a5290dc5804"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 35",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.610984Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 35",
+          "state": "new"
+        },
+        "id": "01a22044-d8e1-72e3-b6b8-b3d58c7f76a0",
+        "number": "INC0000035",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.610984Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-72a7f06c-92e0-44f1-b413-a08acc552871"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 36",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.637522Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 36",
+          "state": "new"
+        },
+        "id": "01a22044-d8fb-781b-81cc-6d37bab2c169",
+        "number": "INC0000036",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.637522Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-e5408682-51b0-4d1e-91aa-dac60745e3d5"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 37",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.667473Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 37",
+          "state": "new"
+        },
+        "id": "01a22044-d919-766f-b24c-6a882a1e255b",
+        "number": "INC0000037",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.667473Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-720a035f-3acd-428a-bf06-2346a3da69e4"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 38",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.697794Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 38",
+          "state": "new"
+        },
+        "id": "01a22044-d937-7a3b-a321-feb89a86d1f2",
+        "number": "INC0000038",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.697794Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-0d334af0-6918-40fe-bf68-f23bd3e7b4d4"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 39",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.732784Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 39",
+          "state": "new"
+        },
+        "id": "01a22044-d95a-7713-bf6f-70cad27e6123",
+        "number": "INC0000039",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.732784Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-1698d071-62c3-4305-9eeb-f1a594b23d81"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 40",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.764121Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 40",
+          "state": "new"
+        },
+        "id": "01a22044-d97a-737e-8bed-882cdfe4a283",
+        "number": "INC0000040",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.764121Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-c5c4e812-7c18-421d-b670-524fc7d5d760"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 41",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.793358Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 41",
+          "state": "new"
+        },
+        "id": "01a22044-d997-7692-a76d-c9f324c1bae3",
+        "number": "INC0000041",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.793358Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-e84b3d0c-2d4c-4610-a1f3-e6434e569d87"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 42",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.824404Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 42",
+          "state": "new"
+        },
+        "id": "01a22044-d9b5-7d7d-9bbc-932e39294ca9",
+        "number": "INC0000042",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.824404Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-7ed4b2b7-c40b-442a-91db-dc5200467dd0"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 43",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.853677Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 43",
+          "state": "new"
+        },
+        "id": "01a22044-d9d4-71f0-bfcf-b6bed8595eca",
+        "number": "INC0000043",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.853677Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-9625d251-5018-40db-880f-f97d90517dfc"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 44",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.883298Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 44",
+          "state": "new"
+        },
+        "id": "01a22044-d9f0-769c-aa85-c77ebaa5bd2f",
+        "number": "INC0000044",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.883298Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-612f8493-947f-418c-be3e-cb20d9c3870a"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 45",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.918537Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 45",
+          "state": "new"
+        },
+        "id": "01a22044-da14-72db-8972-0b5fb334b040",
+        "number": "INC0000045",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.918537Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-da7499de-1226-4db2-bcdf-c11bd86f5ddd"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 46",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:32.963926Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 46",
+          "state": "new"
+        },
+        "id": "01a22044-da41-7437-8c6a-a675e1b33c9d",
+        "number": "INC0000046",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:32.963926Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-6bbedd9a-d302-45a2-9038-e374c60f0ba7"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 47",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:33.001352Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 47",
+          "state": "new"
+        },
+        "id": "01a22044-da66-7c81-aabb-e564afd69711",
+        "number": "INC0000047",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:33.001352Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-4aa5d04c-826f-4ba3-91c2-9847cd587352"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 48",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:33.043106Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 48",
+          "state": "new"
+        },
+        "id": "01a22044-da90-7360-aedf-73cc1d9a7faa",
+        "number": "INC0000048",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:33.043106Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-9911bb6c-7cab-42a9-bac0-c327da2f3f58"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 49",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:33.072585Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 49",
+          "state": "new"
+        },
+        "id": "01a22044-daae-7c1a-8d5e-fcdfe27c2b64",
+        "number": "INC0000049",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:33.072585Z",
+        "version": 1
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/records/incident",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-c518618d-f42e-4bb2-bb48-799a1fd40dce"
+      },
+      "body": {
+        "data": {
+          "short_description": "S21 tenant B 50",
+          "priority": 1
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": "W/\"1\"",
+      "body": {
+        "created_at": "2026-11-28T03:48:33.104588Z",
+        "data": {
+          "org_unit_id": "01a22044-6a94-7c94-8bb4-b4be6ba9d8ff",
+          "priority": 1,
+          "requester": "01a22044-6a90-72b0-8ca0-491d67d0ebf4",
+          "short_description": "S21 tenant B 50",
+          "state": "new"
+        },
+        "id": "01a22044-dace-7c19-ab61-be03271f1fba",
+        "number": "INC0000050",
+        "schema_version": 1,
+        "state": "new",
+        "updated_at": "2026-11-28T03:48:33.104588Z",
+        "version": 1
       }
     }
   }

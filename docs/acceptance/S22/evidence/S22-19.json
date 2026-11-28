@@ -1,0 +1,48 @@
+{
+  "request": {
+    "method": "PUT",
+    "url": "http://127.0.0.1:18082/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "79",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18082",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s22-0857aec9-limit-11",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"filterable_fields_per_type\": 11,\n  \"reason\": \"S22 kit: over the ceiling\"\n}"
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "type": "urn:nava:problem:validation_failed",
+      "title": "Validation failed",
+      "status": 400,
+      "code": "validation_failed",
+      "detail": "The request does not match the API contract. See errors for the failing fields.",
+      "instance": "urn:nava:request:0c077ff25db6049ae940a0861578062a",
+      "errors": [
+        {
+          "pointer": "/body/filterable_fields_per_type",
+          "rule": "maximum"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 400",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code validation_failed",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

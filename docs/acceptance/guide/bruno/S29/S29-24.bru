@@ -1,0 +1,44 @@
+meta {
+  name: S29.24 AC6: tenant B's filter[priority]=3 lists none of tenant A's tickets
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[priority]=3&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  // Tenant B's own answer, from a full read of what B may see, filtered here in JS:
+  // on a shared stack other suites may have left B incidents at priority 3.
+  const every = await T.all('admin_b_token', 'incident', 'sort=created_at');
+  const f = await T.all('admin_b_token', 'incident', 'filter[priority]=3');
+  bru.setVar('s29_b_p3', JSON.stringify({ every_status: every.status, want: every.items.filter(i => i.data.priority === 3).map(i => i.id).sort(),
+    status: f.status, ids: [...f.ids].sort(), broken: f.broken }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const o = JSON.parse(bru.getVar('s29_b_p3'));
+  const a = [N.v('s29_poison_id'), ...N.v('s29_sample_missing').split(','), ...N.v('s29_sample_held').split(',')];
+  test(`exactly tenant B's own priority 3 incidents (${o.want.length})`, () => {
+    expect(o.every_status).to.eql(200);
+    expect(o.status).to.eql(200);
+    expect(o.ids).to.eql(o.want);
+    expect(o.broken).to.eql([]);
+  });
+  test("none of tenant A's ids", () => expect(o.ids.filter(id => a.includes(id))).to.eql([]));
+}
+
+docs {
+  The filter answers from tenant B's own index only. The test reads every incident tenant B may see and filters it in JS: `filter[priority]=3` must list exactly those, and none of tenant A's ids the kit knows (the poison record, the sampled missing and held records). On a fresh stack B's incidents all hold priority 1, so both sides are empty; on a shared stack other suites may have left B incidents at 3.
+}

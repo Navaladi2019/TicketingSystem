@@ -1,0 +1,34 @@
+meta {
+  name: S22.22 AC2: the operator raises tenant A's per-type limit to 10, with a reason: 200
+  type: http
+  seq: 22
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: s22-{{s22_run}}-limit-10
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 10,
+    "reason": "S22 acceptance: measured cost check (TICK-754)"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the limit is 10', () => expect(N.json().filterable_fields_per_type).to.eql(10));
+}
+
+docs {
+  `PUT /api/v1/operator/tenants/{tenant}/limits` on the operator API (TICK-751 scope 3, built in TICK-916, PR #921): body `filterable_fields_per_type` (5 to 10) and a required `reason`. The change is one audited `tenant_limits` row, no DDL. verify.sql finds exactly one audit entry, with the operator as the actor and this reason in it.
+}

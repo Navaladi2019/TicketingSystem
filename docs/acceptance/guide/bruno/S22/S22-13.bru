@@ -1,0 +1,51 @@
+meta {
+  name: S22.13 AC1: after the removal completes, the flag publishes again: 201
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/s22_asset
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const run = bru.getVar('s22_run');
+  const d = JSON.parse(bru.getVar('s22_def'));
+  d.schema.properties.s22_code['x-nava-filterable'] = true;
+  const before = await T.type('admin_a_token', 's22_asset');
+  let i = 0;
+  const ss = await T.until(async () => {
+    i++;
+    // A new Idempotency-Key per attempt: a refused attempt writes nothing, and must not be replayed.
+    const r = await T.publish('admin_a_token', 's22_asset', `s22-${run}-reflag-${i}`, d);
+    return { status: r.status, code: r.data && r.data.code, version: r.data && r.data.version };
+  }, s => s.status !== 409, { every: 3000, limit: 900000 });
+  bru.setVar('s22_reflag', JSON.stringify({ before: before.data.version, ss }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const o = JSON.parse(bru.getVar('s22_reflag'));
+  const last = o.ss[o.ss.length - 1];
+  test(`the flag published again after ${last.at_s} s and ${o.ss.length} attempts: 201`, () => expect(last.status).to.eql(201));
+  test('every attempt before it: 409 field_index_busy', () => o.ss.slice(0, -1).forEach(s => { expect(s.status).to.eql(409); expect(s.code).to.eql('field_index_busy'); }));
+  test('the 409s wrote nothing: the type was at the unflag version, and is now exactly one past it', () => {
+    expect(o.before).to.eql(Number(bru.getVar('s22_v_unflag')));
+    expect(N.json().version).to.eql(Number(bru.getVar('s22_v_unflag')) + 1);
+    expect(N.json().schema.properties.s22_code['x-nava-filterable']).to.eql(true);
+  });
+  console.log('S22.13 attempts', JSON.stringify(o.ss));
+}
+
+docs {
+  Publishes the flag every 3 s (a new `Idempotency-Key` each time) until it is no longer 409 (at most 15 minutes). Every attempt before is 409 `field_index_busy`; the first that is not is 201 and starts a new backfill. The request then reads the type: one version more than the unflag, so none of the 409s wrote a version.
+}

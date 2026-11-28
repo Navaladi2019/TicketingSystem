@@ -1,0 +1,29 @@
+meta {
+  name: S29.15 AC3: an agent asks for the failures: 404
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/backfill/failures
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+}
+
+docs {
+  Alice is not an entity-type admin. She gets the same 404 a missing type gives (ADR-009 D10): `not_found`, with no `instance`, as every 404 on the platform.
+}

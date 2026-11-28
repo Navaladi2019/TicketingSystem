@@ -1,0 +1,3 @@
+pattern DataFilterTimeout: 0 hits
+pattern LegacyScanFields: 0 hits
+pattern boundDataFilter: 0 hits

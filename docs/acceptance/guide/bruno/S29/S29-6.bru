@@ -1,0 +1,39 @@
+meta {
+  name: S29.6 AC5: s29_tier made required without a default: 422 schema_breaking_change
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s29-{{s29_run}}-required-no-default
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const d = JSON.parse(bru.getVar('s29_def'));
+  d.schema.required = [...(d.schema.required || []), 's29_tier'];
+  req.setBody({ definition: d });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('schema_breaking_change', 422);
+}
+
+docs {
+  ADR-009 D14: making an existing property required is breaking unless the same version gives it a default.
+}

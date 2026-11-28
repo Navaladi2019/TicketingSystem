@@ -1,0 +1,32 @@
+meta {
+  name: S22.20 AC2: the operator gives no reason: 400 validation_failed
+  type: http
+  seq: 20
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: s22-{{s22_run}}-limit-noreason
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 10
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}
+
+docs {
+  `reason` is required: it goes into the audit entry (D25 governance). Refused, nothing written.
+}

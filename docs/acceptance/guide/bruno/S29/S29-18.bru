@@ -1,0 +1,48 @@
+meta {
+  name: S29.18 AC5: s29_tier made required with a default: 201
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s29-{{s29_run}}-required-default
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const d = JSON.parse(bru.getVar('s29_def'));
+  d.schema.properties.s29_level.default = 3;
+  d.schema.required = [...(d.schema.required || []), 's29_tier'];
+  d.schema.properties.s29_tier.default = 'standard';
+  req.setBody({ definition: d });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('the next version, s29_tier required with default standard', () => {
+    expect(N.json().version).to.eql(Number(bru.getVar('s29_v3')) + 1);
+    expect(N.json().schema.required).to.include('s29_tier');
+    expect(N.json().schema.properties.s29_tier.default).to.eql('standard');
+  });
+  bru.setVar('s29_v4', String(N.json().version));
+  bru.setVar('s29_before', bru.getVar('s29_after'));
+}
+
+docs {
+  ADR-009 D14: required plus a default is `needs_backfill`, not breaking. A new job starts for `s29_tier`.
+}

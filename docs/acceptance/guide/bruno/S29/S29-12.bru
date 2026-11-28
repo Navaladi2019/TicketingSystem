@@ -1,0 +1,56 @@
+meta {
+  name: S29.12 AC1: until the job ends, every sample's filter total is right
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const want = Number(N.v('s29_p3_n'));
+  const ss = await T.until(async () => {
+    const t = await T.type('admin_a_token', 'incident');
+    const f = await T.list('alice_token', 'incident', 'filter[s29_level]=3&limit=1');
+    return { state: t.data && t.data.backfill && t.data.backfill.state, backfill: t.data && t.data.backfill,
+             filter_status: f.status, total: f.data && f.data.total, total_state: f.data && f.data.total_state,
+             total_bad: f.status !== 200 ? 'HTTP ' + f.status : (want > 1000 ? T.bigTotal(f.data) : (T.totalOk(f.data, want) ? null : 'total ' + JSON.stringify(f.data.total))) };
+  }, s => ['done', 'failed_records', 'superseded'].includes(s.state) || !s.backfill, { every: 2000, limit: 1200000 });
+  bru.setVar('s29_watch', JSON.stringify(ss));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ss = JSON.parse(bru.getVar('s29_watch'));
+  const last = ss[ss.length - 1];
+  test(`the job ended ${last.state} after ${last.at_s} s and ${ss.length} samples`, () => expect(last.state).to.eql('failed_records'));
+  test('states only move forward: pending, filling, running, then failed_records', () => {
+    const order = ['pending', 'filling', 'running', 'done', 'failed_records'];
+    let prev = -1; ss.forEach(s => { const i = order.indexOf(s.state); expect(i, JSON.stringify(s)).to.be.at.least(prev); prev = i; });
+  });
+  test('every sample, in every state: filter[s29_level]=3 answers 200, capped at 1,000 or unknown with a null total', () => ss.forEach(s => expect(s.total_bad, JSON.stringify(s)).to.eql(null)));
+  console.log('S29.12 samples', ss.length, 'unknown', ss.filter(s => s.total_state === 'unknown').length);
+  test('the final counts: 1 failed, nothing pending (remaining = the 1 failure), rewritten + failed = the records that lacked s29_level', () => {
+    const b = N.json().backfill;
+    expect(b.failed).to.eql(1);
+    expect(b.remaining, 'remaining is pending plus failure rows (D10, PR #960)').to.eql(b.failed);
+    expect(b.rewritten + b.failed, 'every record that lacked s29_level was rewritten or failed').to.eql(Number(N.v('s29_missing_n')));
+    console.log('S29.12 final counts', JSON.stringify(b));
+    expect(b.target_version).to.eql(Number(bru.getVar('s29_v3')));
+  });
+  console.log('S29.12 states', JSON.stringify(ss.map(s => [s.at_s, s.state, s.backfill && s.backfill.remaining, s.total, s.total_state])));
+}
+
+docs {
+  Samples every 2 s (at most 20 minutes) until the job is `done` or `failed_records`: the job's `state` and counts, and Alice's `filter[s29_level]=3&limit=1` total. Every sample must answer `capped` 1,000 or `unknown` with a null `total`, whatever the state (pending, filling, running). The job ends `failed_records` because of the poison record.
+}

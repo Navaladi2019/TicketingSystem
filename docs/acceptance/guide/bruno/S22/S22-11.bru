@@ -1,0 +1,51 @@
+meta {
+  name: S22.11 AC1: at once, filter[s22_code] answers 400 field_not_filterable; AC4 writes during the removal
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{core_url}}/api/v1/records/s22_asset?filter[s22_code]=K07
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const run = bru.getVar('s22_run');
+  const out = { creates: [], edits: [] };
+  // AC4: writes while FieldIndexRemove runs: 3 creates on K07, and 3 seeded K08 records moved to K07.
+  for (let i = 1; i <= 3; i++) {
+    const r = await T.create('admin_a_token', 's22_asset', `s22-${run}-during-${i}`, { name: `S22 ${run} created during removal ${i}`, s22_code: 'K07' });
+    out.creates.push({ status: r.status, id: r.data && r.data.id });
+  }
+  for (const k of [8, 28, 48]) {
+    const id = T.md5uuid('s22/' + k);
+    const r = await T.patch('admin_a_token', 's22_asset', `s22-${run}-edit-during-${k}`, id, 1, { s22_code: 'K07' });
+    out.edits.push({ status: r.status, id, version: r.data && r.data.version });
+  }
+  out.done_ms = Date.now() - Number(bru.getVar('s22_unflagged_at'));
+  bru.setVar('s22_during', JSON.stringify(out));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_not_filterable', 400);
+  N.fieldError('/filter/s22_code');
+  const o = JSON.parse(bru.getVar('s22_during'));
+  test('during the removal: 3 creates 201, 3 edits 200 at version 2', () => {
+    expect(o.creates.map(c => c.status)).to.eql([201, 201, 201]);
+    expect(o.edits.map(e => e.status)).to.eql([200, 200, 200]);
+    expect(o.edits.map(e => e.version)).to.eql([2, 2, 2]);
+  });
+  console.log('S22.11 writes done', o.done_ms, 'ms after the unflag');
+}
+
+docs {
+  Right after S22.10, before the removal can have finished: the field is no longer filterable (ADR-006 D6 step 2 reads the registry row in `removing` as not flagged). The pre-request writes while the removal runs (AC4): 3 creates with `s22_code` K07 and 3 seeded K08 records (seed ordinals 8, 28, 48) moved to K07. verify.sql later finds no side row left over from the removed index.
+}

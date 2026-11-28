@@ -1,0 +1,41 @@
+meta {
+  name: S22.12 AC1: flagging it again while the removal runs: 409 field_index_busy
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/s22_asset/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s22-{{s22_run}}-reflag-busy
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const d = JSON.parse(bru.getVar('s22_def'));
+  d.schema.properties.s22_code['x-nava-filterable'] = true;
+  req.setBody({ definition: d });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_index_busy', 409);
+  const t = Date.now() - Number(bru.getVar('s22_unflagged_at'));
+  console.log('S22.12 409 at', t, 'ms after the unflag');
+}
+
+docs {
+  ADR-006 D8: a flag on a field whose index is `removing` is refused until the removal has deleted the registry row. The removal goes through the relay and the per-tenant coordinator and deletes 20,000 side rows in batches of 1,000, so it is still running here; run-kit.sh's worker log shows when it ended. Nothing is written: S22.13 reads the same version.
+}

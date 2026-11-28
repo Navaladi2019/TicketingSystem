@@ -1,0 +1,91 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/s22_asset/versions",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "442",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s22-0857aec9-unflag",
+      "Content-Type": "application/json"
+    },
+    "body": "{\"definition\":{\"schema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"name\",\"state\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Name\",\"minLength\":1,\"maxLength\":160},\"state\":{\"type\":\"string\",\"enum\":[\"new\",\"closed\"],\"default\":\"new\"},\"s22_code\":{\"type\":\"string\",\"title\":\"Code\",\"maxLength\":16}}},\"fixed_columns\":{\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"closed\"}]}}}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "key": "s22_asset",
+      "name": "S22 asset",
+      "number_prefix": "SAST",
+      "numbering_mode": "gaps",
+      "version": 3,
+      "current": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "state"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "s22_code": {
+            "type": "string",
+            "title": "Code",
+            "maxLength": 16
+          }
+        }
+      },
+      "schema_sha256": "61881b3ac3c4060d840d2549eee35d252a9be5aa5b41f171ef73b042cdaa85f6",
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      },
+      "compat": "compatible",
+      "number_format": null,
+      "published_at": "2026-11-28T12:00:05.677164Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "compatible, the next version",
+      "status": "pass"
+    },
+    {
+      "test": "s22_code is no longer flagged",
+      "status": "pass"
+    }
+  ]
+}

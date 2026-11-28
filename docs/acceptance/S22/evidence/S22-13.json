@@ -1,0 +1,94 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/s22_asset",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "key": "s22_asset",
+      "name": "S22 asset",
+      "number_prefix": "SAST",
+      "numbering_mode": "gaps",
+      "version": 4,
+      "current": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "state"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "s22_code": {
+            "type": "string",
+            "title": "Code",
+            "maxLength": 16,
+            "x-nava-filterable": true
+          }
+        }
+      },
+      "schema_sha256": "d4bbe42d6a49441abed075d860d8413b25c2e6793cb2acba925cbb1a686e6001",
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      },
+      "compat": "compatible",
+      "number_format": null,
+      "published_at": "2026-11-28T12:00:27.203914Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "the flag published again after 21 s and 8 attempts: 201",
+      "status": "pass"
+    },
+    {
+      "test": "every attempt before it: 409 field_index_busy",
+      "status": "pass"
+    },
+    {
+      "test": "the 409s wrote nothing: the type was at the unflag version, and is now exactly one past it",
+      "status": "pass"
+    }
+  ]
+}

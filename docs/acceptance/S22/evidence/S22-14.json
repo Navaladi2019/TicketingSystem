@@ -1,0 +1,2844 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/s22_asset?filter[s22_code]=K07&limit=200",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "created_at": "2026-10-30T23:12:00Z",
+          "data": {
+            "name": "S22 seed 48",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "f4aa5407-5be3-7408-abc3-ccefe93677f5",
+          "number": "SAST0000048",
+          "schema_version": 3,
+          "state": "new",
+          "updated_at": "2026-11-28T12:00:05.841276Z",
+          "version": 2
+        },
+        {
+          "created_at": "2026-10-30T23:32:00Z",
+          "data": {
+            "name": "S22 seed 28",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "07fc2360-1d05-9827-8658-d9a9ebae4b52",
+          "number": "SAST0000028",
+          "schema_version": 3,
+          "state": "new",
+          "updated_at": "2026-11-28T12:00:05.818666Z",
+          "version": 2
+        },
+        {
+          "created_at": "2026-10-30T23:52:00Z",
+          "data": {
+            "name": "S22 seed 8",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "30b90b04-bff6-884a-8467-62c7e7e97c3c",
+          "number": "SAST0000008",
+          "schema_version": 3,
+          "state": "new",
+          "updated_at": "2026-11-28T12:00:05.798533Z",
+          "version": 2
+        },
+        {
+          "created_at": "2026-11-28T12:00:05.778092Z",
+          "data": {
+            "name": "S22 0857aec9 created during removal 3",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "01a22206-e091-7937-a31a-8b603a03e20d",
+          "number": "SAST0020003",
+          "schema_version": 3,
+          "state": "new",
+          "updated_at": "2026-11-28T12:00:05.778092Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-11-28T12:00:05.753381Z",
+          "data": {
+            "name": "S22 0857aec9 created during removal 2",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "01a22206-e078-7c50-b416-79515627cf28",
+          "number": "SAST0020002",
+          "schema_version": 3,
+          "state": "new",
+          "updated_at": "2026-11-28T12:00:05.753381Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-11-28T12:00:05.733703Z",
+          "data": {
+            "name": "S22 0857aec9 created during removal 1",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "01a22206-e063-7d90-92f5-adf1304fe3f2",
+          "number": "SAST0020001",
+          "schema_version": 3,
+          "state": "new",
+          "updated_at": "2026-11-28T12:00:05.733703Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:53:00Z",
+          "data": {
+            "name": "S22 seed 7",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "b0911d79-b842-1786-496c-80e405c32a7f",
+          "number": "SAST0000007",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:33:00Z",
+          "data": {
+            "name": "S22 seed 27",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "092e5c10-427c-a4ac-508c-029223bad6af",
+          "number": "SAST0000027",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T23:13:00Z",
+          "data": {
+            "name": "S22 seed 47",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "b9493caf-7565-d515-76ba-319caa770a47",
+          "number": "SAST0000047",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T23:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T22:53:00Z",
+          "data": {
+            "name": "S22 seed 67",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "6ac8da16-999f-b460-857d-1b1a316500b2",
+          "number": "SAST0000067",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T22:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T22:33:00Z",
+          "data": {
+            "name": "S22 seed 87",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "4ca89501-0d9d-e897-536d-437a7fa0631a",
+          "number": "SAST0000087",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T22:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T22:13:00Z",
+          "data": {
+            "name": "S22 seed 107",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "c22ccc6d-c6c1-4545-9de5-0313a2d732b4",
+          "number": "SAST0000107",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T22:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T21:53:00Z",
+          "data": {
+            "name": "S22 seed 127",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "69a0166a-e316-2ee7-5ad4-02dcaa1ca2d5",
+          "number": "SAST0000127",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T21:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T21:33:00Z",
+          "data": {
+            "name": "S22 seed 147",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "39022f6e-163c-b72c-a689-e49b0ccb8cbe",
+          "number": "SAST0000147",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T21:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T21:13:00Z",
+          "data": {
+            "name": "S22 seed 167",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "16f90d4e-8997-a805-6a85-a9599aa779f2",
+          "number": "SAST0000167",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T21:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T20:53:00Z",
+          "data": {
+            "name": "S22 seed 187",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "17162df2-fb5b-8c99-af3c-885cb7c1f154",
+          "number": "SAST0000187",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T20:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T20:33:00Z",
+          "data": {
+            "name": "S22 seed 207",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "31c57ecc-fde1-eb6c-b7bf-eed12a5ec166",
+          "number": "SAST0000207",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T20:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T20:13:00Z",
+          "data": {
+            "name": "S22 seed 227",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "d7fc3acc-d1a0-e631-28da-836a562dd790",
+          "number": "SAST0000227",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T20:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T19:53:00Z",
+          "data": {
+            "name": "S22 seed 247",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "fd026e37-3078-189d-c029-093c21d074ad",
+          "number": "SAST0000247",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T19:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T19:33:00Z",
+          "data": {
+            "name": "S22 seed 267",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "084b21b7-2f0f-6f93-404c-2c684f14de70",
+          "number": "SAST0000267",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T19:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T19:13:00Z",
+          "data": {
+            "name": "S22 seed 287",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "047bd81c-2d98-1526-2b93-944867f0d157",
+          "number": "SAST0000287",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T19:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T18:53:00Z",
+          "data": {
+            "name": "S22 seed 307",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "dad9115f-4e12-791b-9dc1-243bf8a37b9c",
+          "number": "SAST0000307",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T18:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T18:33:00Z",
+          "data": {
+            "name": "S22 seed 327",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "732c40b5-01cd-4335-ff7f-88fe2592bc39",
+          "number": "SAST0000327",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T18:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T18:13:00Z",
+          "data": {
+            "name": "S22 seed 347",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "16830191-987e-06d1-3aaf-9ec236f89688",
+          "number": "SAST0000347",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T18:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T17:53:00Z",
+          "data": {
+            "name": "S22 seed 367",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "53104f18-a3d7-5030-3293-426ab743085f",
+          "number": "SAST0000367",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T17:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T17:33:00Z",
+          "data": {
+            "name": "S22 seed 387",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "911d5ff3-e953-7a08-c22b-f225644ede73",
+          "number": "SAST0000387",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T17:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T17:13:00Z",
+          "data": {
+            "name": "S22 seed 407",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "6f6e350e-58be-ffb9-e265-940343563881",
+          "number": "SAST0000407",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T17:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T16:53:00Z",
+          "data": {
+            "name": "S22 seed 427",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "363a62b2-3fe3-a97d-9e7e-3ea6bc6700d8",
+          "number": "SAST0000427",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T16:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T16:33:00Z",
+          "data": {
+            "name": "S22 seed 447",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "980fbae5-15a3-fd98-d264-d45154fceabc",
+          "number": "SAST0000447",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T16:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T16:13:00Z",
+          "data": {
+            "name": "S22 seed 467",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "6f8e6a65-bf0d-3dee-7716-870a42f0465c",
+          "number": "SAST0000467",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T16:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T15:53:00Z",
+          "data": {
+            "name": "S22 seed 487",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "84e3268c-ca60-efac-19be-82fe06d0dcf8",
+          "number": "SAST0000487",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T15:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T15:33:00Z",
+          "data": {
+            "name": "S22 seed 507",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "92928bc2-05aa-0915-56ee-0b4f4a842a56",
+          "number": "SAST0000507",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T15:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T15:13:00Z",
+          "data": {
+            "name": "S22 seed 527",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "8fb0af96-985c-44bf-e77c-86910b29bc20",
+          "number": "SAST0000527",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T15:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T14:53:00Z",
+          "data": {
+            "name": "S22 seed 547",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "03480c3b-5a1c-1ad2-e330-68a66a20993d",
+          "number": "SAST0000547",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T14:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T14:33:00Z",
+          "data": {
+            "name": "S22 seed 567",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "c2640c56-f0bd-60e6-7f1e-21b832573d03",
+          "number": "SAST0000567",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T14:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T14:13:00Z",
+          "data": {
+            "name": "S22 seed 587",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "aafb6b48-b26c-ddd5-969f-f2e4ff9eb89f",
+          "number": "SAST0000587",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T14:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T13:53:00Z",
+          "data": {
+            "name": "S22 seed 607",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "fe5fd621-c180-d0a5-eee0-7becd0703c31",
+          "number": "SAST0000607",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T13:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T13:33:00Z",
+          "data": {
+            "name": "S22 seed 627",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "be35a8b6-52f6-f35e-3a75-bcb4e58d8dfb",
+          "number": "SAST0000627",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T13:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T13:13:00Z",
+          "data": {
+            "name": "S22 seed 647",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "2d960408-38eb-0d11-1779-b90559b31b4a",
+          "number": "SAST0000647",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T13:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T12:53:00Z",
+          "data": {
+            "name": "S22 seed 667",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "53d85ff0-93f4-8f14-49d8-bdfc5dd90020",
+          "number": "SAST0000667",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T12:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T12:33:00Z",
+          "data": {
+            "name": "S22 seed 687",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "4cd8defe-f295-4470-5bce-37daf5428e09",
+          "number": "SAST0000687",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T12:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T12:13:00Z",
+          "data": {
+            "name": "S22 seed 707",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "bb0e6676-7bad-5e02-431c-4e557bf8d15c",
+          "number": "SAST0000707",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T12:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T11:53:00Z",
+          "data": {
+            "name": "S22 seed 727",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "0a0acd40-ca86-419e-221d-036ba09660cf",
+          "number": "SAST0000727",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T11:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T11:33:00Z",
+          "data": {
+            "name": "S22 seed 747",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "071ddaba-8a35-4dfa-30b9-188489250de3",
+          "number": "SAST0000747",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T11:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T11:13:00Z",
+          "data": {
+            "name": "S22 seed 767",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "2f04f1be-d718-1494-9b63-c849b4bfd9a2",
+          "number": "SAST0000767",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T11:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T10:53:00Z",
+          "data": {
+            "name": "S22 seed 787",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "29365b8a-223e-fd43-0eee-735a5a4a270d",
+          "number": "SAST0000787",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T10:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T10:33:00Z",
+          "data": {
+            "name": "S22 seed 807",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "76513ff4-c299-8c83-4284-ca69c4b260e7",
+          "number": "SAST0000807",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T10:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T10:13:00Z",
+          "data": {
+            "name": "S22 seed 827",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "74c90189-a348-a514-9046-ffcb3ef4b338",
+          "number": "SAST0000827",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T10:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T09:53:00Z",
+          "data": {
+            "name": "S22 seed 847",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "c81c45ee-f269-146a-0e57-76ef7f79892c",
+          "number": "SAST0000847",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T09:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T09:33:00Z",
+          "data": {
+            "name": "S22 seed 867",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "6cd3b52a-43e3-3d51-c985-f774eb3c1a9d",
+          "number": "SAST0000867",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T09:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T09:13:00Z",
+          "data": {
+            "name": "S22 seed 887",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "172798c0-272d-b668-bc1a-6eb555c4c008",
+          "number": "SAST0000887",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T09:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T08:53:00Z",
+          "data": {
+            "name": "S22 seed 907",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "132c015f-a874-cffd-f87c-03d3d9ca8147",
+          "number": "SAST0000907",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T08:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T08:33:00Z",
+          "data": {
+            "name": "S22 seed 927",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "29c95e57-7043-e1dd-4b9f-ff5fc91073cc",
+          "number": "SAST0000927",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T08:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T08:13:00Z",
+          "data": {
+            "name": "S22 seed 947",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "5305b92f-943a-f506-06c7-04085d9b736c",
+          "number": "SAST0000947",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T08:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T07:53:00Z",
+          "data": {
+            "name": "S22 seed 967",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "c92fc3f1-1e6d-aa20-f8af-f1bf83b28310",
+          "number": "SAST0000967",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T07:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T07:33:00Z",
+          "data": {
+            "name": "S22 seed 987",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "dc650ab9-7a70-b977-a59f-298b30b942c7",
+          "number": "SAST0000987",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T07:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T07:13:00Z",
+          "data": {
+            "name": "S22 seed 1007",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "fd569f6a-e59a-9d6b-f7e2-ef5d3828d296",
+          "number": "SAST0001007",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T07:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T06:53:00Z",
+          "data": {
+            "name": "S22 seed 1027",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "2a9c5980-9b65-43b1-d522-e019620a9a8d",
+          "number": "SAST0001027",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T06:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T06:33:00Z",
+          "data": {
+            "name": "S22 seed 1047",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "65ebcc43-4c54-68d3-4c6d-5219d4cbe15e",
+          "number": "SAST0001047",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T06:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T06:13:00Z",
+          "data": {
+            "name": "S22 seed 1067",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "99c2f3c9-97a6-af18-d4ff-66909b2e4170",
+          "number": "SAST0001067",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T06:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T05:53:00Z",
+          "data": {
+            "name": "S22 seed 1087",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "376a697e-ad61-a70b-c8f2-db226276f966",
+          "number": "SAST0001087",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T05:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T05:33:00Z",
+          "data": {
+            "name": "S22 seed 1107",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "23a589f2-3bdd-c047-75e9-23332a63767f",
+          "number": "SAST0001107",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T05:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T05:13:00Z",
+          "data": {
+            "name": "S22 seed 1127",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "2d50ce22-cc41-a379-ab36-91d8424b6453",
+          "number": "SAST0001127",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T05:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T04:53:00Z",
+          "data": {
+            "name": "S22 seed 1147",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "1262feb6-6f2a-b77c-3de9-53882ca78bbb",
+          "number": "SAST0001147",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T04:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T04:33:00Z",
+          "data": {
+            "name": "S22 seed 1167",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "4a29c6e5-1588-5e5d-105a-1a19a9993598",
+          "number": "SAST0001167",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T04:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T04:13:00Z",
+          "data": {
+            "name": "S22 seed 1187",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "ac828a8e-9cb1-1584-86c3-38192da400bd",
+          "number": "SAST0001187",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T04:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T03:53:00Z",
+          "data": {
+            "name": "S22 seed 1207",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "8d90a990-3f9b-cf47-29b4-a468b1e1a2aa",
+          "number": "SAST0001207",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T03:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T03:33:00Z",
+          "data": {
+            "name": "S22 seed 1227",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "4bd784dc-f47c-2a56-e1e9-1f77b09620e4",
+          "number": "SAST0001227",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T03:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T03:13:00Z",
+          "data": {
+            "name": "S22 seed 1247",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "01ec1f63-221e-9c3e-e84e-4cd28e7828e5",
+          "number": "SAST0001247",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T03:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T02:53:00Z",
+          "data": {
+            "name": "S22 seed 1267",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "ff53cf7b-b0ed-55f9-efad-66e5eebe966c",
+          "number": "SAST0001267",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T02:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T02:33:00Z",
+          "data": {
+            "name": "S22 seed 1287",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "0bc5c90f-9294-6b4d-51a5-6d11cc58fbeb",
+          "number": "SAST0001287",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T02:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T02:13:00Z",
+          "data": {
+            "name": "S22 seed 1307",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "035ce1b3-3e4b-0a84-6c6a-d4f0454c0100",
+          "number": "SAST0001307",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T02:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T01:53:00Z",
+          "data": {
+            "name": "S22 seed 1327",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "fd980b1c-5bca-d46f-f320-9e700179300c",
+          "number": "SAST0001327",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T01:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T01:33:00Z",
+          "data": {
+            "name": "S22 seed 1347",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "cd8835c2-f7b3-8a8c-9859-080e001b6a4a",
+          "number": "SAST0001347",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T01:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T01:13:00Z",
+          "data": {
+            "name": "S22 seed 1367",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "b9df27fe-87fb-c6d7-6104-f420750ef258",
+          "number": "SAST0001367",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T01:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T00:53:00Z",
+          "data": {
+            "name": "S22 seed 1387",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "af121c34-d0eb-c146-b49d-a639a0c48c18",
+          "number": "SAST0001387",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T00:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T00:33:00Z",
+          "data": {
+            "name": "S22 seed 1407",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "af8dd955-3c08-ae20-3bbf-a009d5d26ef7",
+          "number": "SAST0001407",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T00:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T00:13:00Z",
+          "data": {
+            "name": "S22 seed 1427",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "fbb1f375-5c5e-273e-afec-7b1ed32372e2",
+          "number": "SAST0001427",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-31T00:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T23:53:00Z",
+          "data": {
+            "name": "S22 seed 1447",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "63a116c1-99ec-dd8f-3533-5ffb54456736",
+          "number": "SAST0001447",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T23:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T23:33:00Z",
+          "data": {
+            "name": "S22 seed 1467",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "fa31b2a3-e3d3-f3b7-df8f-d46384ee4159",
+          "number": "SAST0001467",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T23:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T23:13:00Z",
+          "data": {
+            "name": "S22 seed 1487",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "8a156409-74ae-8c2f-5570-22b6c8cf0e89",
+          "number": "SAST0001487",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T23:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T22:53:00Z",
+          "data": {
+            "name": "S22 seed 1507",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "bb913efe-6f1e-122c-c6f7-2b470aac273b",
+          "number": "SAST0001507",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T22:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T22:33:00Z",
+          "data": {
+            "name": "S22 seed 1527",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "671cbc7c-43c8-2ed0-5234-b7981a1b5ea5",
+          "number": "SAST0001527",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T22:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T22:13:00Z",
+          "data": {
+            "name": "S22 seed 1547",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "35d25b72-55ff-c297-d660-7b415df5e923",
+          "number": "SAST0001547",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T22:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T21:53:00Z",
+          "data": {
+            "name": "S22 seed 1567",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "5bf71038-d96f-d0dc-17df-ac61309d65e3",
+          "number": "SAST0001567",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T21:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T21:33:00Z",
+          "data": {
+            "name": "S22 seed 1587",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "499a8d29-5bde-23df-448d-3648ee11dcf5",
+          "number": "SAST0001587",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T21:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T21:13:00Z",
+          "data": {
+            "name": "S22 seed 1607",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "011d53dd-6115-ccaa-e827-afb1badd501b",
+          "number": "SAST0001607",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T21:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T20:53:00Z",
+          "data": {
+            "name": "S22 seed 1627",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "037615c5-db76-90d2-e72d-0a625b701e3b",
+          "number": "SAST0001627",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T20:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T20:33:00Z",
+          "data": {
+            "name": "S22 seed 1647",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "7599a890-f4be-046d-ffc8-ac85427a9e10",
+          "number": "SAST0001647",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T20:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T20:13:00Z",
+          "data": {
+            "name": "S22 seed 1667",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "7382f312-a38e-7ce4-d027-abfb498c8871",
+          "number": "SAST0001667",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T20:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T19:53:00Z",
+          "data": {
+            "name": "S22 seed 1687",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "818a12b9-7f9f-d6b2-7c4c-3739808ffae7",
+          "number": "SAST0001687",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T19:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T19:33:00Z",
+          "data": {
+            "name": "S22 seed 1707",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "f9a83a6b-be09-3581-6ed2-4750ef6c1754",
+          "number": "SAST0001707",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T19:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T19:13:00Z",
+          "data": {
+            "name": "S22 seed 1727",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "7523ecb6-8f79-1e03-f61d-2e5b3dd0a512",
+          "number": "SAST0001727",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T19:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T18:53:00Z",
+          "data": {
+            "name": "S22 seed 1747",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "19e9c3ac-5a18-222f-7eff-2cddf075cb45",
+          "number": "SAST0001747",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T18:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T18:33:00Z",
+          "data": {
+            "name": "S22 seed 1767",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "a68b7102-a462-cbe4-177e-02dac4841547",
+          "number": "SAST0001767",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T18:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T18:13:00Z",
+          "data": {
+            "name": "S22 seed 1787",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "cb702235-1e06-9498-4fd5-ce43bc597390",
+          "number": "SAST0001787",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T18:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T17:53:00Z",
+          "data": {
+            "name": "S22 seed 1807",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "e229c23e-6db0-87c3-b93b-5c433dd97694",
+          "number": "SAST0001807",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T17:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T17:33:00Z",
+          "data": {
+            "name": "S22 seed 1827",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "9efb6755-cc1e-627c-d9ad-18aadaa12e0b",
+          "number": "SAST0001827",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T17:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T17:13:00Z",
+          "data": {
+            "name": "S22 seed 1847",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "50634ace-d008-d993-5c42-e1c38f5cda98",
+          "number": "SAST0001847",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T17:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T16:53:00Z",
+          "data": {
+            "name": "S22 seed 1867",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "cdc0c6f1-2d70-7b64-043c-409895f3a744",
+          "number": "SAST0001867",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T16:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T16:33:00Z",
+          "data": {
+            "name": "S22 seed 1887",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "4c285329-48e6-7546-bd81-b090938770ad",
+          "number": "SAST0001887",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T16:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T16:13:00Z",
+          "data": {
+            "name": "S22 seed 1907",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "b975c39f-c724-46ce-1ff1-389f4d816d25",
+          "number": "SAST0001907",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T16:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T15:53:00Z",
+          "data": {
+            "name": "S22 seed 1927",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "61648e7b-26b6-373d-94a9-164cd47e91e3",
+          "number": "SAST0001927",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T15:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T15:33:00Z",
+          "data": {
+            "name": "S22 seed 1947",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "5d44b2e8-df78-0992-ef88-e5a4a401be52",
+          "number": "SAST0001947",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T15:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T15:13:00Z",
+          "data": {
+            "name": "S22 seed 1967",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "7b8f55f4-be3c-1dfb-8d9a-885771022920",
+          "number": "SAST0001967",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T15:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T14:53:00Z",
+          "data": {
+            "name": "S22 seed 1987",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "08c1385d-7a93-17c5-7d50-35c9c0b432dc",
+          "number": "SAST0001987",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T14:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T14:33:00Z",
+          "data": {
+            "name": "S22 seed 2007",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "50209f75-f2dd-a069-cfa1-f5533a79ee0f",
+          "number": "SAST0002007",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T14:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T14:13:00Z",
+          "data": {
+            "name": "S22 seed 2027",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "fdf064e3-4a56-4202-e12b-ce5e6af9658b",
+          "number": "SAST0002027",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T14:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T13:53:00Z",
+          "data": {
+            "name": "S22 seed 2047",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "7a681c20-0982-671c-edba-c0548b620884",
+          "number": "SAST0002047",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T13:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T13:33:00Z",
+          "data": {
+            "name": "S22 seed 2067",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "edf3622e-3fb3-12d6-3caa-c1fc62636d0f",
+          "number": "SAST0002067",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T13:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T13:13:00Z",
+          "data": {
+            "name": "S22 seed 2087",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "54e99a21-c4c8-a68a-1a79-1ce28c2e62f0",
+          "number": "SAST0002087",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T13:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T12:53:00Z",
+          "data": {
+            "name": "S22 seed 2107",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "250682bb-80df-565f-6bd3-b9dfec12cf88",
+          "number": "SAST0002107",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T12:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T12:33:00Z",
+          "data": {
+            "name": "S22 seed 2127",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "720adfb0-82c6-3f7a-26fd-f2eb2a3b5ac0",
+          "number": "SAST0002127",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T12:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T12:13:00Z",
+          "data": {
+            "name": "S22 seed 2147",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "c33b0ce5-9eb8-f29c-c5f7-706f0e472505",
+          "number": "SAST0002147",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T12:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T11:53:00Z",
+          "data": {
+            "name": "S22 seed 2167",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "42137b27-1a7a-9787-991f-bf7be6315d69",
+          "number": "SAST0002167",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T11:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T11:33:00Z",
+          "data": {
+            "name": "S22 seed 2187",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "ca691ada-f94e-5a44-c283-64d441506dcf",
+          "number": "SAST0002187",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T11:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T11:13:00Z",
+          "data": {
+            "name": "S22 seed 2207",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "c60022c3-7b7f-2d00-559d-422b62258a4e",
+          "number": "SAST0002207",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T11:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T10:53:00Z",
+          "data": {
+            "name": "S22 seed 2227",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "bb0ed8d0-509b-bfd6-ef94-a6a474dfa620",
+          "number": "SAST0002227",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T10:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T10:33:00Z",
+          "data": {
+            "name": "S22 seed 2247",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "b5767e25-76f3-481c-bd89-2533b666eae2",
+          "number": "SAST0002247",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T10:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T10:13:00Z",
+          "data": {
+            "name": "S22 seed 2267",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "32b73add-5384-d560-2087-b48f39d5cb4b",
+          "number": "SAST0002267",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T10:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T09:53:00Z",
+          "data": {
+            "name": "S22 seed 2287",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "21b97587-3240-dd04-6728-ac9c586b1c9d",
+          "number": "SAST0002287",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T09:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T09:33:00Z",
+          "data": {
+            "name": "S22 seed 2307",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "72d576f8-3a79-3e72-e46f-8b638f9992ad",
+          "number": "SAST0002307",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T09:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T09:13:00Z",
+          "data": {
+            "name": "S22 seed 2327",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "42bec665-1a10-b850-2507-a56d26d1cd37",
+          "number": "SAST0002327",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T09:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T08:53:00Z",
+          "data": {
+            "name": "S22 seed 2347",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "0c79bfdf-9409-cf9b-a845-67737edd0888",
+          "number": "SAST0002347",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T08:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T08:33:00Z",
+          "data": {
+            "name": "S22 seed 2367",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "9ba5ef58-ba79-026f-e834-12aab9be0b29",
+          "number": "SAST0002367",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T08:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T08:13:00Z",
+          "data": {
+            "name": "S22 seed 2387",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "922eb19d-a249-41a5-da25-509fa607a068",
+          "number": "SAST0002387",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T08:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T07:53:00Z",
+          "data": {
+            "name": "S22 seed 2407",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "9143e0cd-4edb-039b-e1c0-0db88e230157",
+          "number": "SAST0002407",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T07:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T07:33:00Z",
+          "data": {
+            "name": "S22 seed 2427",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "7673b5aa-f43b-9750-5744-73fbd0397a08",
+          "number": "SAST0002427",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T07:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T07:13:00Z",
+          "data": {
+            "name": "S22 seed 2447",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "24055ec4-0413-1947-2823-05ef90cc3b45",
+          "number": "SAST0002447",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T07:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T06:53:00Z",
+          "data": {
+            "name": "S22 seed 2467",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "4454122f-3041-e088-04c0-4b6437a433b4",
+          "number": "SAST0002467",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T06:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T06:33:00Z",
+          "data": {
+            "name": "S22 seed 2487",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "40f72131-bcc6-fc6e-c3e6-a07e8a7941f5",
+          "number": "SAST0002487",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T06:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T06:13:00Z",
+          "data": {
+            "name": "S22 seed 2507",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "60d4a0dd-906a-7752-f484-36db1e93dd8e",
+          "number": "SAST0002507",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T06:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T05:53:00Z",
+          "data": {
+            "name": "S22 seed 2527",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "06067fd0-6bd6-f2bd-1f45-7ce19dc89fc1",
+          "number": "SAST0002527",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T05:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T05:33:00Z",
+          "data": {
+            "name": "S22 seed 2547",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "72601ee8-5ac9-ab6f-3823-67571f05d82f",
+          "number": "SAST0002547",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T05:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T05:13:00Z",
+          "data": {
+            "name": "S22 seed 2567",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "bc776ca5-42d3-3a9d-6998-fcc077658b99",
+          "number": "SAST0002567",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T05:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T04:53:00Z",
+          "data": {
+            "name": "S22 seed 2587",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "cd413f05-d263-782a-8305-4a001824d5df",
+          "number": "SAST0002587",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T04:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T04:33:00Z",
+          "data": {
+            "name": "S22 seed 2607",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "cfba006d-27ad-aba4-afef-95a6d7f1a067",
+          "number": "SAST0002607",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T04:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T04:13:00Z",
+          "data": {
+            "name": "S22 seed 2627",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "5a52cd86-7345-9f98-76e1-e6d5e699180d",
+          "number": "SAST0002627",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T04:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T03:53:00Z",
+          "data": {
+            "name": "S22 seed 2647",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "bdc96789-2f44-992c-8c5c-a250cd877b08",
+          "number": "SAST0002647",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T03:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T03:33:00Z",
+          "data": {
+            "name": "S22 seed 2667",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "11e0b564-99c8-9300-675c-3ce35656fd0e",
+          "number": "SAST0002667",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T03:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T03:13:00Z",
+          "data": {
+            "name": "S22 seed 2687",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "f9599c81-4609-2dff-3aa4-cfce3fb708ba",
+          "number": "SAST0002687",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T03:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T02:53:00Z",
+          "data": {
+            "name": "S22 seed 2707",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "06188461-e54a-618c-3bb4-f2ee5eb281ab",
+          "number": "SAST0002707",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T02:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T02:33:00Z",
+          "data": {
+            "name": "S22 seed 2727",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "b61b6c2f-c4ce-a35d-7261-47d866ab8a1c",
+          "number": "SAST0002727",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T02:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T02:13:00Z",
+          "data": {
+            "name": "S22 seed 2747",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "d800efe9-3959-7e9e-82ac-dfc0246231ba",
+          "number": "SAST0002747",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T02:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T01:53:00Z",
+          "data": {
+            "name": "S22 seed 2767",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "a083fc3d-692c-9ce6-df46-3f9dbdc72b38",
+          "number": "SAST0002767",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T01:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T01:33:00Z",
+          "data": {
+            "name": "S22 seed 2787",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "53b6dacc-038c-8da7-c3f8-974c5ad70402",
+          "number": "SAST0002787",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T01:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T01:13:00Z",
+          "data": {
+            "name": "S22 seed 2807",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "cbb9d0b1-38ba-d6de-77a8-b1dfec43d2e3",
+          "number": "SAST0002807",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T01:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T00:53:00Z",
+          "data": {
+            "name": "S22 seed 2827",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "7217c403-db36-54e2-b3dc-ad8ed71da9e3",
+          "number": "SAST0002827",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T00:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T00:33:00Z",
+          "data": {
+            "name": "S22 seed 2847",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "59eb5a71-fbcc-c692-f3da-1076371ecb0b",
+          "number": "SAST0002847",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T00:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T00:13:00Z",
+          "data": {
+            "name": "S22 seed 2867",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "e9a92c4f-bc58-dfb3-e6e4-b6c4a14d6542",
+          "number": "SAST0002867",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-30T00:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T23:53:00Z",
+          "data": {
+            "name": "S22 seed 2887",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "c0a70ca9-8358-9f2a-80a2-45cfe603ca7a",
+          "number": "SAST0002887",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T23:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T23:33:00Z",
+          "data": {
+            "name": "S22 seed 2907",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "57589fcd-8e6c-f520-7aa1-77a9adda8631",
+          "number": "SAST0002907",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T23:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T23:13:00Z",
+          "data": {
+            "name": "S22 seed 2927",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "ab924d6b-da80-fa0a-7021-e4ef608f80a5",
+          "number": "SAST0002927",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T23:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T22:53:00Z",
+          "data": {
+            "name": "S22 seed 2947",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "ee8021e5-533d-769e-f04e-440778492ef8",
+          "number": "SAST0002947",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T22:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T22:33:00Z",
+          "data": {
+            "name": "S22 seed 2967",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "e8512151-080b-0ef4-acbc-32ae00096823",
+          "number": "SAST0002967",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T22:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T22:13:00Z",
+          "data": {
+            "name": "S22 seed 2987",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "077e8b5d-e26d-b55b-2d1f-a0bb9dbf3c1d",
+          "number": "SAST0002987",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T22:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T21:53:00Z",
+          "data": {
+            "name": "S22 seed 3007",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "a4262b7d-d494-6aa5-6a7c-f8e8bbbb36bb",
+          "number": "SAST0003007",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T21:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T21:33:00Z",
+          "data": {
+            "name": "S22 seed 3027",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "d23b31f3-65e6-5592-0638-8cd8ebd75097",
+          "number": "SAST0003027",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T21:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T21:13:00Z",
+          "data": {
+            "name": "S22 seed 3047",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "42b1ece9-004c-0a6b-fbd9-71483f0f2cfc",
+          "number": "SAST0003047",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T21:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T20:53:00Z",
+          "data": {
+            "name": "S22 seed 3067",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "e3c9a258-a72a-cb94-ff62-75582d05a7ed",
+          "number": "SAST0003067",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T20:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T20:33:00Z",
+          "data": {
+            "name": "S22 seed 3087",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "374e658c-3d2b-93da-ddb2-f6c7a51cd55b",
+          "number": "SAST0003087",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T20:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T20:13:00Z",
+          "data": {
+            "name": "S22 seed 3107",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "4809f2e4-dc73-487e-bbae-1136913fe1dc",
+          "number": "SAST0003107",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T20:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T19:53:00Z",
+          "data": {
+            "name": "S22 seed 3127",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "02b17e47-6d0d-a99e-8626-7f8b36823e6a",
+          "number": "SAST0003127",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T19:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T19:33:00Z",
+          "data": {
+            "name": "S22 seed 3147",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "e30f6d50-7f3f-586a-2a8f-f5d8f88c1a61",
+          "number": "SAST0003147",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T19:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T19:13:00Z",
+          "data": {
+            "name": "S22 seed 3167",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "adc2c14d-2b17-29de-8692-1b8805d15427",
+          "number": "SAST0003167",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T19:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T18:53:00Z",
+          "data": {
+            "name": "S22 seed 3187",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "00b968f6-608e-d623-7db8-8fa2e0850607",
+          "number": "SAST0003187",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T18:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T18:33:00Z",
+          "data": {
+            "name": "S22 seed 3207",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "9f318461-db2c-3231-e40a-bfdcc996a839",
+          "number": "SAST0003207",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T18:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T18:13:00Z",
+          "data": {
+            "name": "S22 seed 3227",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "264104e0-3a58-c27f-6ea7-6f388681449b",
+          "number": "SAST0003227",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T18:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T17:53:00Z",
+          "data": {
+            "name": "S22 seed 3247",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "d271677b-14b9-a764-bd72-cfdf84692ce0",
+          "number": "SAST0003247",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T17:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T17:33:00Z",
+          "data": {
+            "name": "S22 seed 3267",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "1140a787-eee9-2418-3a3c-270b8c7d97f7",
+          "number": "SAST0003267",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T17:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T17:13:00Z",
+          "data": {
+            "name": "S22 seed 3287",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "0c2fffed-9875-a24e-00a4-c20f4c1737df",
+          "number": "SAST0003287",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T17:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T16:53:00Z",
+          "data": {
+            "name": "S22 seed 3307",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "0611a4cf-50e9-d2ca-9bca-91c9ce08877d",
+          "number": "SAST0003307",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T16:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T16:33:00Z",
+          "data": {
+            "name": "S22 seed 3327",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "d826a369-e064-f829-0578-45ed9cbc995b",
+          "number": "SAST0003327",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T16:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T16:13:00Z",
+          "data": {
+            "name": "S22 seed 3347",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "d13aa702-a2ea-bdf9-c989-2befc7daaa17",
+          "number": "SAST0003347",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T16:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T15:53:00Z",
+          "data": {
+            "name": "S22 seed 3367",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "b44f56ce-537e-cfa5-c27d-1462c9fe0887",
+          "number": "SAST0003367",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T15:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T15:33:00Z",
+          "data": {
+            "name": "S22 seed 3387",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "b9554308-ac9d-30cc-c868-1d0e0e84721e",
+          "number": "SAST0003387",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T15:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T15:13:00Z",
+          "data": {
+            "name": "S22 seed 3407",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "7502acc6-80dc-b081-77c7-2e68ded453c8",
+          "number": "SAST0003407",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T15:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T14:53:00Z",
+          "data": {
+            "name": "S22 seed 3427",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "2028b7fa-dc9c-324e-a546-af1fbd105126",
+          "number": "SAST0003427",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T14:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T14:33:00Z",
+          "data": {
+            "name": "S22 seed 3447",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "bc7ae073-8ad5-5ae7-eaa4-850442c5e3b8",
+          "number": "SAST0003447",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T14:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T14:13:00Z",
+          "data": {
+            "name": "S22 seed 3467",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "633b7dcb-566b-1b3f-3963-df51620e69c5",
+          "number": "SAST0003467",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T14:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T13:53:00Z",
+          "data": {
+            "name": "S22 seed 3487",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "e3de989f-9ac7-176f-3171-6dd82581ed80",
+          "number": "SAST0003487",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T13:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T13:33:00Z",
+          "data": {
+            "name": "S22 seed 3507",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "0d3a0249-71ff-f046-772a-ddb6fbd78143",
+          "number": "SAST0003507",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T13:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T13:13:00Z",
+          "data": {
+            "name": "S22 seed 3527",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "bf212183-a480-80e8-6f1c-2514224b2e29",
+          "number": "SAST0003527",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T13:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T12:53:00Z",
+          "data": {
+            "name": "S22 seed 3547",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "237f3f88-8f95-0462-1af3-11630b99d2ef",
+          "number": "SAST0003547",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T12:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T12:33:00Z",
+          "data": {
+            "name": "S22 seed 3567",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "576325ce-3135-4d09-5229-e91196147be7",
+          "number": "SAST0003567",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T12:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T12:13:00Z",
+          "data": {
+            "name": "S22 seed 3587",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "f5d50fe6-fe9d-ce0d-8426-25150de481fb",
+          "number": "SAST0003587",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T12:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T11:53:00Z",
+          "data": {
+            "name": "S22 seed 3607",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "43a96f3b-3ad8-f60c-df4c-b1f7fda0276f",
+          "number": "SAST0003607",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T11:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T11:33:00Z",
+          "data": {
+            "name": "S22 seed 3627",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "3e59016c-f6d6-9ddb-d377-91af3285b3cd",
+          "number": "SAST0003627",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T11:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T11:13:00Z",
+          "data": {
+            "name": "S22 seed 3647",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "f3ee4b40-6674-900d-74c3-7a5a4e0d3071",
+          "number": "SAST0003647",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T11:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T10:53:00Z",
+          "data": {
+            "name": "S22 seed 3667",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "a98cf39d-4b4c-f9e5-52db-b2c3599617d6",
+          "number": "SAST0003667",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T10:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T10:33:00Z",
+          "data": {
+            "name": "S22 seed 3687",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "073a6312-d3dc-ee57-e535-ac3695e6b04f",
+          "number": "SAST0003687",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T10:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T10:13:00Z",
+          "data": {
+            "name": "S22 seed 3707",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "3cffa65f-a798-82e0-99c3-91bd6d0ff4a1",
+          "number": "SAST0003707",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T10:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T09:53:00Z",
+          "data": {
+            "name": "S22 seed 3727",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "db76b91d-afb8-00e4-d92a-4a181237aca5",
+          "number": "SAST0003727",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T09:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T09:33:00Z",
+          "data": {
+            "name": "S22 seed 3747",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "0f397830-c577-7b5b-3258-427db984ac4c",
+          "number": "SAST0003747",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T09:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T09:13:00Z",
+          "data": {
+            "name": "S22 seed 3767",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "0d4a4cc5-33de-16dc-c856-d81c181c13cf",
+          "number": "SAST0003767",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T09:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T08:53:00Z",
+          "data": {
+            "name": "S22 seed 3787",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "49e4a7a9-f354-bcf4-8c47-fe7186d845c1",
+          "number": "SAST0003787",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T08:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T08:33:00Z",
+          "data": {
+            "name": "S22 seed 3807",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "a4b8bc77-39a5-025a-3830-7cedf4f79dc1",
+          "number": "SAST0003807",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T08:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T08:13:00Z",
+          "data": {
+            "name": "S22 seed 3827",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "e9f9706d-41fc-1f11-c65f-bdb083ebc18c",
+          "number": "SAST0003827",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T08:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T07:53:00Z",
+          "data": {
+            "name": "S22 seed 3847",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "c1100cea-9516-e5e2-dcbd-ded11e00e4a1",
+          "number": "SAST0003847",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T07:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T07:33:00Z",
+          "data": {
+            "name": "S22 seed 3867",
+            "s22_code": "K07",
+            "state": "new"
+          },
+          "id": "4662aedd-64f6-1fb0-8ef3-fb92e075aee6",
+          "number": "SAST0003867",
+          "schema_version": 1,
+          "state": "new",
+          "updated_at": "2026-10-29T07:33:00Z",
+          "version": 1
+        }
+      ],
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTI5IDA3OjMzOjAwKzAwIiwiaSI6IjQ2NjJhZWRkLTY0ZjYtMWZiMC04ZWYzLWZiOTJlMDc1YWVlNiJ9.tsCcnrTXZVLTJASAuX5LRDKXX34F3g7Jv0nT65zcUxQ",
+      "total": 1000,
+      "total_capped": true,
+      "total_state": "capped"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "ready again",
+      "status": "pass"
+    },
+    {
+      "test": "K07: 1,006 records, including the 3 created and the 3 moved during the removal",
+      "status": "pass"
+    },
+    {
+      "test": "K08: 997, the moved three gone",
+      "status": "pass"
+    }
+  ]
+}

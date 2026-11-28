@@ -1,0 +1,39 @@
+meta {
+  name: S29.19 AC5: the s29_tier job ends
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const ss = await T.until(async () => { const t = await T.type('admin_a_token', 'incident'); return { state: t.data.backfill && t.data.backfill.state, target: t.data.backfill && t.data.backfill.target_version }; },
+    s => s.target === Number(bru.getVar('s29_v4')) && ['done', 'failed_records'].includes(s.state), { every: 2000, limit: 1200000 });
+  bru.setVar('s29_watch2', JSON.stringify(ss));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ss = JSON.parse(bru.getVar('s29_watch2'));
+  test('the job of the new version ended', () => {
+    expect(N.json().backfill.target_version).to.eql(Number(bru.getVar('s29_v4')));
+    expect(['done', 'failed_records']).to.include(N.json().backfill.state);
+    expect(N.json().backfill.remaining, 'remaining is pending plus failure rows').to.eql(N.json().backfill.failed);
+  });
+  console.log('S29.19 states', JSON.stringify(ss));
+}
+
+docs {
+  Waits for the job of S29.18's version. The poison record breaks the schema again, so it ends `failed_records` with that one failure.
+}

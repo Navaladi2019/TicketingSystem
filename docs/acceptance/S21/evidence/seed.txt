@@ -1,31 +1,27 @@
 Timing is on.
 SET
-Time: 0.386 ms
+Time: 0.384 ms
 SET
-Time: 0.212 ms
+Time: 0.282 ms
 SELECT 1
-Time: 5.328 ms
+Time: 6.837 ms
 DO
-Time: 4.566 ms
+Time: 5.665 ms
 INSERT 0 400000
-Time: 22963.918 ms (00:22.964)
+Time: 31991.199 ms (00:31.991)
 INSERT 0 1
-Time: 1.807 ms
-INSERT 0 50
-Time: 2.717 ms
-INSERT 0 1
-Time: 0.621 ms
+Time: 1.545 ms
 SET
-Time: 0.156 ms
+Time: 0.198 ms
 RESET
-Time: 0.115 ms
+Time: 0.159 ms
 VACUUM
-Time: 951.122 ms
+Time: 582.042 ms
               tenant_id               | incidents | priority_1 | service_desk 
 --------------------------------------+-----------+------------+--------------
  00000000-0000-4000-8000-0000000000a1 |    400000 |       3955 |        20137
  00000000-0000-4000-8000-0000000000b1 |        50 |         50 |            0
 (2 rows)
 
-Time: 262.281 ms
-seed took 25 s
+Time: 29566.188 ms (00:29.566)
+seed took 64 s

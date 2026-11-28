@@ -1,0 +1,741 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/entity-types/s22_asset",
+      "headers": {},
+      "body": null
+    },
+    "response": {
+      "status": 404,
+      "body": {
+        "type": "urn:nava:problem:not_found",
+        "title": "Not found",
+        "status": 404,
+        "code": "not_found",
+        "detail": "The resource does not exist."
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/entity-types",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s22-setup-90140875-93d4-49ca-a520-032f286c48af"
+      },
+      "body": {
+        "key": "s22_asset",
+        "name": "S22 asset",
+        "number_prefix": "SAST",
+        "definition": {
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "state"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "title": "Name",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "new",
+                  "closed"
+                ],
+                "default": "new"
+              },
+              "s22_code": {
+                "type": "string",
+                "title": "Code",
+                "maxLength": 16
+              }
+            }
+          },
+          "fixed_columns": {
+            "state": "state"
+          },
+          "states": {
+            "initial": "new",
+            "states": [
+              "new",
+              "closed"
+            ],
+            "transitions": [
+              {
+                "from": "new",
+                "to": "closed"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "key": "s22_asset",
+        "name": "S22 asset",
+        "number_prefix": "SAST",
+        "numbering_mode": "gaps",
+        "version": 1,
+        "current": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "state"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "new",
+                "closed"
+              ],
+              "default": "new"
+            },
+            "s22_code": {
+              "type": "string",
+              "title": "Code",
+              "maxLength": 16
+            }
+          }
+        },
+        "schema_sha256": "61881b3ac3c4060d840d2549eee35d252a9be5aa5b41f171ef73b042cdaa85f6",
+        "fixed_columns": {
+          "state": "state"
+        },
+        "states": {
+          "initial": "new",
+          "states": [
+            "new",
+            "closed"
+          ],
+          "transitions": [
+            {
+              "from": "new",
+              "to": "closed"
+            }
+          ]
+        },
+        "compat": "initial",
+        "number_format": null,
+        "published_at": "2026-11-28T11:59:27.439747Z"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/entity-types/incident/access",
+      "headers": {},
+      "body": null
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "version": 1,
+        "rules": {
+          "format": 2,
+          "conditions": [],
+          "policies": [
+            {
+              "name": "default_admins",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a22205-ba87-762a-9720-3dc34048c77b"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_service_desk",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a22205-ba87-7657-aae5-758e793a0a4b"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "cmp": {
+                      "column": "assignment_group_id",
+                      "op": "in",
+                      "caller": "my_groups"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_requester",
+              "ops": [
+                "read"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "cmp": {
+                          "column": "requester_id",
+                          "op": "eq",
+                          "caller": "self"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_requester_new",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "cmp": {
+                          "column": "requester_id",
+                          "op": "eq",
+                          "caller": "self"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "cmp": {
+                      "column": "state",
+                      "op": "eq",
+                      "values": [
+                        "new"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "masks": [],
+        "published_by": null,
+        "published_at": "2026-11-28T11:58:52.582971Z"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/api/v1/entity-types/s22_asset/access",
+      "headers": {
+        "If-Match": "W/\"0\"",
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s22-setup-038427fa-734f-4605-9664-438ef73460db"
+      },
+      "body": {
+        "rules": {
+          "format": 2,
+          "conditions": [],
+          "policies": [
+            {
+              "name": "s22_admins",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a22205-ba87-762a-9720-3dc34048c77b"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "masks": []
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "version": 1,
+        "rules": {
+          "format": 2,
+          "conditions": [],
+          "policies": [
+            {
+              "name": "s22_admins",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a22205-ba87-762a-9720-3dc34048c77b"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "masks": [],
+        "published_by": "01a22205-ba82-7447-8023-50bac68e1cbe",
+        "published_at": "2026-11-28T11:59:27.471805Z"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/entity-types/incident",
+      "headers": {},
+      "body": null
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "key": "incident",
+        "name": "Incident",
+        "number_prefix": "INC",
+        "numbering_mode": "gaps",
+        "version": 2,
+        "current": true,
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "short_description",
+            "state"
+          ],
+          "properties": {
+            "short_description": {
+              "type": "string",
+              "title": "Short description",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "description": {
+              "type": "string",
+              "title": "Description",
+              "maxLength": 32000
+            },
+            "state": {
+              "type": "string",
+              "title": "State",
+              "enum": [
+                "new",
+                "in_progress",
+                "resolved",
+                "closed"
+              ],
+              "default": "new"
+            },
+            "priority": {
+              "type": "integer",
+              "x-nava-filterable": true,
+              "title": "Priority",
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "default": 3
+            },
+            "requester": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Requester"
+            },
+            "assignee": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignee"
+            },
+            "assignment_group": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment group"
+            },
+            "s29_level": {
+              "type": "integer",
+              "title": "Level",
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "x-nava-filterable": true
+            },
+            "s29_tier": {
+              "type": "string",
+              "title": "Tier",
+              "maxLength": 32
+            },
+            "s22_note": {
+              "type": "string",
+              "title": "S22 note",
+              "maxLength": 64
+            }
+          }
+        },
+        "schema_sha256": "4a23d51c0cb5046bb49b75d29cc59c7528714d39bc6bc058800596da814d6e0e",
+        "fixed_columns": {
+          "assignee": "assignee_id",
+          "assignment_group": "assignment_group_id",
+          "requester": "requester_id",
+          "state": "state"
+        },
+        "states": {
+          "initial": "new",
+          "states": [
+            "new",
+            "in_progress",
+            "resolved",
+            "closed"
+          ],
+          "transitions": [
+            {
+              "from": "new",
+              "to": "in_progress"
+            },
+            {
+              "from": "in_progress",
+              "to": "resolved"
+            },
+            {
+              "from": "resolved",
+              "to": "closed"
+            },
+            {
+              "from": "resolved",
+              "to": "in_progress"
+            }
+          ]
+        },
+        "compat": "compatible",
+        "number_format": null,
+        "published_at": "2026-11-28T11:59:23.36998Z"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/entity-types/incident/versions",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s22-setup-e4e201ed-815c-4847-b588-0e2e50df4678"
+      },
+      "body": {
+        "definition": {
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "short_description",
+              "state"
+            ],
+            "properties": {
+              "short_description": {
+                "type": "string",
+                "title": "Short description",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "description": {
+                "type": "string",
+                "title": "Description",
+                "maxLength": 32000
+              },
+              "state": {
+                "type": "string",
+                "title": "State",
+                "enum": [
+                  "new",
+                  "in_progress",
+                  "resolved",
+                  "closed"
+                ],
+                "default": "new"
+              },
+              "priority": {
+                "type": "integer",
+                "x-nava-filterable": true,
+                "title": "Priority",
+                "enum": [
+                  1,
+                  2,
+                  3,
+                  4
+                ],
+                "default": 3
+              },
+              "requester": {
+                "type": "string",
+                "format": "uuid",
+                "title": "Requester"
+              },
+              "assignee": {
+                "type": "string",
+                "format": "uuid",
+                "title": "Assignee"
+              },
+              "assignment_group": {
+                "type": "string",
+                "format": "uuid",
+                "title": "Assignment group"
+              },
+              "s29_level": {
+                "type": "integer",
+                "title": "Level",
+                "enum": [
+                  1,
+                  2,
+                  3,
+                  4
+                ],
+                "x-nava-filterable": true
+              },
+              "s29_tier": {
+                "type": "string",
+                "title": "Tier",
+                "maxLength": 32
+              },
+              "s22_note": {
+                "type": "string",
+                "title": "S22 note",
+                "maxLength": 64
+              }
+            }
+          },
+          "fixed_columns": {
+            "assignee": "assignee_id",
+            "assignment_group": "assignment_group_id",
+            "requester": "requester_id",
+            "state": "state"
+          },
+          "states": {
+            "initial": "new",
+            "states": [
+              "new",
+              "in_progress",
+              "resolved",
+              "closed"
+            ],
+            "transitions": [
+              {
+                "from": "new",
+                "to": "in_progress"
+              },
+              {
+                "from": "in_progress",
+                "to": "resolved"
+              },
+              {
+                "from": "resolved",
+                "to": "closed"
+              },
+              {
+                "from": "resolved",
+                "to": "in_progress"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "key": "incident",
+        "name": "Incident",
+        "number_prefix": "INC",
+        "numbering_mode": "gaps",
+        "version": 3,
+        "current": true,
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "short_description",
+            "state"
+          ],
+          "properties": {
+            "short_description": {
+              "type": "string",
+              "title": "Short description",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "description": {
+              "type": "string",
+              "title": "Description",
+              "maxLength": 32000
+            },
+            "state": {
+              "type": "string",
+              "title": "State",
+              "enum": [
+                "new",
+                "in_progress",
+                "resolved",
+                "closed"
+              ],
+              "default": "new"
+            },
+            "priority": {
+              "type": "integer",
+              "x-nava-filterable": true,
+              "title": "Priority",
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "default": 3
+            },
+            "requester": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Requester"
+            },
+            "assignee": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignee"
+            },
+            "assignment_group": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment group"
+            },
+            "s29_level": {
+              "type": "integer",
+              "title": "Level",
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "x-nava-filterable": true
+            },
+            "s29_tier": {
+              "type": "string",
+              "title": "Tier",
+              "maxLength": 32
+            },
+            "s22_note": {
+              "type": "string",
+              "title": "S22 note",
+              "maxLength": 64
+            }
+          }
+        },
+        "schema_sha256": "6ab03d119613addc7b1232277318c585405f5c1a7f854ec845f35d80b9379137",
+        "fixed_columns": {
+          "assignee": "assignee_id",
+          "assignment_group": "assignment_group_id",
+          "requester": "requester_id",
+          "state": "state"
+        },
+        "states": {
+          "initial": "new",
+          "states": [
+            "new",
+            "in_progress",
+            "resolved",
+            "closed"
+          ],
+          "transitions": [
+            {
+              "from": "new",
+              "to": "in_progress"
+            },
+            {
+              "from": "in_progress",
+              "to": "resolved"
+            },
+            {
+              "from": "resolved",
+              "to": "closed"
+            },
+            {
+              "from": "resolved",
+              "to": "in_progress"
+            }
+          ]
+        },
+        "compat": "compatible",
+        "number_format": null,
+        "published_at": "2026-11-28T11:59:27.503993Z"
+      }
+    }
+  }
+]
