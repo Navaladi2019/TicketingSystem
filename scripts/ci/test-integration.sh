@@ -61,12 +61,17 @@ while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$(
 # a cluster of its own and under its own -timeout (TICK-1102). One process of
 # internal/server took 277 s to over 480 s on the same head (run 45024439126,
 # attempts 1 and 2): the runner's swing was larger than the headroom under 8m.
+# internal/groupsync joined internal/server (TICK-1199): with the story
+# branches' new packages the shared chain took about 700 s of a 15-minute job
+# (run 46051156428: records/pipeline 299 s, groupsync 175 s) and run
+# 46064898762 was cancelled at the bound with every group ok. groupsync uses
+# only NAVA_TEST_PG_URL; records/pipeline needs the PgBouncer, so it stays.
 solo=""
 solo_pgs=""
 solo_shards=${NAVA_IT_SOLO_SHARDS:-2}
 case $solo_shards in '' | 0 | *[!0-9]*) echo "NAVA_IT_SOLO_SHARDS=$solo_shards: a positive number" >&2; exit 2 ;; esac
 if [ "$shards" -gt 0 ]; then
-    for p in ${NAVA_IT_SOLO-./internal/server}; do
+    for p in ${NAVA_IT_SOLO-./internal/server ./internal/groupsync}; do
         solo="$solo $p"
         k=1
         while [ "$k" -le "$solo_shards" ]; do
@@ -77,14 +82,14 @@ if [ "$shards" -gt 0 ]; then
     done
 fi
 # Every go test gets a -timeout well below the integration job's
-# timeout-minutes (15), so a hung test panics with Go's goroutine dump, which
+# timeout-minutes (20, TICK-1199), so a hung test panics with Go's goroutine dump, which
 # names it, before GitHub cancels the step with an empty log (TICK-225). The
 # tests start about 1.5 minutes into the job; the slowest package,
 # internal/server, took 348 s on run 44760743332, so 6m left it 12 s
 # (TICK-1021). 8m was then raised to 11m (TICK-1100): green hosted runs of
 # internal/server took 241 to 347 s, and run 45012776252 attempts 1 and 2
 # ran 1.57x slower on westus2 runners and hit 8m with no test failing. 11m
-# panics at about 12.5 minutes, leaving about 2.5 for teardown and the dump.
+# panics at about 12.5 minutes, leaving about 7.5 for teardown and the dump.
 # Rule: when green runs of the slowest package go over about 70 % of this
 # limit (about 460 s for 11m), split the package (NAVA_IT_SOLO) rather than
 # raise the limit again. A later -timeout in the script's arguments wins.
@@ -308,7 +313,15 @@ done
 for j in $printers; do
     wait "${j%%:*}" || { echo "integration: testlog failed for ${j#*:}" >&2; status=1; }
 done
-echo "integration: tests done after $(( $(date +%s) - t0 ))s"
+el=$(( $(date +%s) - t0 ))
+echo "integration: tests done after ${el}s"
+# Budget (TICK-1199, docs/quality/ci-pipeline.md "integration budget"): the
+# job's alert line is 80 % of its 20 minutes, 960 s; the job spends about 45 s
+# outside this script, so tests done after 900 s raise a warning on the run.
+# Not a failure: the run is green, and the warning asks for a Performance
+# pending issue to rebalance the groups. NAVA_IT_WARN_S: another host's line.
+warn=${NAVA_IT_WARN_S:-900}
+[ "$el" -le "$warn" ] || echo "::warning title=integration over budget::tests done after ${el}s, over the ${warn}s alert line (80 % of timeout-minutes); open a Performance pending issue, see docs/quality/ci-pipeline.md (TICK-1199)"
 # The groups' output was streamed above; this repeats, per group, the package
 # results and the output of every failed test, then checks that every
 # registered isolation suite in these packages ran a test (tools/ci/suiteran,

@@ -46,7 +46,7 @@ jobs:
       matrix:
         service: [temporal-server, keycloak]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Build and push the image unless its key's tag exists
         env:
           GH_TOKEN: ${{ github.token }}
