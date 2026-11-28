@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident?filter[priority]=1",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[priority]=1",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -22,7 +22,7 @@
             "description": "S21 internal note 57",
             "due_at": "2026-06-21T15:41:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 57",
             "state": "closed"
           },
@@ -35,16 +35,16 @@
         },
         {
           "assignment_group": {
-            "id": "01a1fa20-3369-71b7-b27f-9b2a7f388b7a",
+            "id": "01a22044-694e-76a2-af03-5265d61f0ac5",
             "removed": false
           },
           "created_at": "2026-10-30T20:04:00Z",
           "data": {
-            "assignment_group": "01a1fa20-3369-71b7-b27f-9b2a7f388b7a",
+            "assignment_group": "01a22044-694e-76a2-af03-5265d61f0ac5",
             "description": "S21 internal note 236",
             "due_at": "2026-10-06T14:27:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 236",
             "state": "closed"
           },
@@ -61,7 +61,7 @@
             "description": "S21 internal note 336",
             "due_at": "2026-03-08T15:37:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 336",
             "state": "resolved"
           },
@@ -78,7 +78,7 @@
             "description": "S21 internal note 415",
             "due_at": "2026-10-08T21:21:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 415",
             "state": "resolved"
           },
@@ -95,7 +95,7 @@
             "description": "S21 internal note 545",
             "due_at": "2026-05-06T22:27:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 545",
             "state": "resolved"
           },
@@ -112,7 +112,7 @@
             "description": "S21 internal note 555",
             "due_at": "2026-12-24T12:07:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 555",
             "state": "closed"
           },
@@ -129,7 +129,7 @@
             "description": "S21 internal note 787",
             "due_at": "2026-01-18T08:01:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 787",
             "state": "new"
           },
@@ -146,7 +146,7 @@
             "description": "S21 internal note 798",
             "due_at": "2026-02-13T08:00:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 798",
             "state": "new"
           },
@@ -163,7 +163,7 @@
             "description": "S21 internal note 805",
             "due_at": "2026-03-27T02:43:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 805",
             "state": "closed"
           },
@@ -180,7 +180,7 @@
             "description": "S21 internal note 882",
             "due_at": "2026-01-06T23:55:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 882",
             "state": "resolved"
           },
@@ -197,7 +197,7 @@
             "description": "S21 internal note 1106",
             "due_at": "2026-08-25T00:14:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1106",
             "state": "new"
           },
@@ -214,7 +214,7 @@
             "description": "S21 internal note 1158",
             "due_at": "2026-10-01T19:04:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1158",
             "state": "in_progress"
           },
@@ -231,7 +231,7 @@
             "description": "S21 internal note 1254",
             "due_at": "2026-04-22T11:24:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1254",
             "state": "resolved"
           },
@@ -244,16 +244,16 @@
         },
         {
           "assignment_group": {
-            "id": "01a1fa20-3369-71b7-b27f-9b2a7f388b7a",
+            "id": "01a22044-694e-76a2-af03-5265d61f0ac5",
             "removed": false
           },
           "created_at": "2026-10-30T03:05:00Z",
           "data": {
-            "assignment_group": "01a1fa20-3369-71b7-b27f-9b2a7f388b7a",
+            "assignment_group": "01a22044-694e-76a2-af03-5265d61f0ac5",
             "description": "S21 internal note 1255",
             "due_at": "2026-12-10T20:43:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1255",
             "state": "new"
           },
@@ -270,7 +270,7 @@
             "description": "S21 internal note 1276",
             "due_at": "2026-08-19T13:50:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1276",
             "state": "new"
           },
@@ -287,7 +287,7 @@
             "description": "S21 internal note 1291",
             "due_at": "2026-12-30T11:26:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1291",
             "state": "new"
           },
@@ -304,7 +304,7 @@
             "description": "S21 internal note 1474",
             "due_at": "2026-08-24T22:24:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1474",
             "state": "resolved"
           },
@@ -321,7 +321,7 @@
             "description": "S21 internal note 1487",
             "due_at": "2026-11-13T17:47:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1487",
             "state": "closed"
           },
@@ -338,7 +338,7 @@
             "description": "S21 internal note 1542",
             "due_at": "2026-05-26T13:13:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1542",
             "state": "resolved"
           },
@@ -355,7 +355,7 @@
             "description": "S21 internal note 1663",
             "due_at": "2026-12-19T09:49:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1663",
             "state": "resolved"
           },
@@ -372,7 +372,7 @@
             "description": "S21 internal note 1730",
             "due_at": "2026-07-12T07:54:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1730",
             "state": "in_progress"
           },
@@ -389,7 +389,7 @@
             "description": "S21 internal note 1901",
             "due_at": "2026-07-28T02:04:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 1901",
             "state": "new"
           },
@@ -406,7 +406,7 @@
             "description": "S21 internal note 2126",
             "due_at": "2026-04-01T21:00:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2126",
             "state": "resolved"
           },
@@ -423,7 +423,7 @@
             "description": "S21 internal note 2177",
             "due_at": "2026-09-06T00:06:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2177",
             "state": "closed"
           },
@@ -440,7 +440,7 @@
             "description": "S21 internal note 2232",
             "due_at": "2026-06-06T04:17:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2232",
             "state": "resolved"
           },
@@ -457,7 +457,7 @@
             "description": "S21 internal note 2235",
             "due_at": "2026-06-06T19:58:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2235",
             "state": "resolved"
           },
@@ -474,7 +474,7 @@
             "description": "S21 internal note 2244",
             "due_at": "2026-02-14T08:58:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2244",
             "state": "closed"
           },
@@ -491,7 +491,7 @@
             "description": "S21 internal note 2404",
             "due_at": "2026-03-29T12:40:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2404",
             "state": "closed"
           },
@@ -508,7 +508,7 @@
             "description": "S21 internal note 2539",
             "due_at": "2026-08-03T00:53:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2539",
             "state": "closed"
           },
@@ -521,16 +521,16 @@
         },
         {
           "assignment_group": {
-            "id": "01a1fa20-3369-71b7-b27f-9b2a7f388b7a",
+            "id": "01a22044-694e-76a2-af03-5265d61f0ac5",
             "removed": false
           },
           "created_at": "2026-10-28T22:34:00Z",
           "data": {
-            "assignment_group": "01a1fa20-3369-71b7-b27f-9b2a7f388b7a",
+            "assignment_group": "01a22044-694e-76a2-af03-5265d61f0ac5",
             "description": "S21 internal note 2966",
             "due_at": "2026-09-13T06:54:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2966",
             "state": "closed"
           },
@@ -547,7 +547,7 @@
             "description": "S21 internal note 2991",
             "due_at": "2026-04-28T16:01:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 2991",
             "state": "closed"
           },
@@ -564,7 +564,7 @@
             "description": "S21 internal note 3027",
             "due_at": "2026-08-30T00:03:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3027",
             "state": "resolved"
           },
@@ -581,7 +581,7 @@
             "description": "S21 internal note 3127",
             "due_at": "2026-08-02T02:11:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3127",
             "state": "closed"
           },
@@ -598,7 +598,7 @@
             "description": "S21 internal note 3217",
             "due_at": "2026-11-22T03:54:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3217",
             "state": "closed"
           },
@@ -615,7 +615,7 @@
             "description": "S21 internal note 3218",
             "due_at": "2026-07-21T16:13:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3218",
             "state": "in_progress"
           },
@@ -632,7 +632,7 @@
             "description": "S21 internal note 3237",
             "due_at": "2026-12-01T15:25:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3237",
             "state": "closed"
           },
@@ -649,7 +649,7 @@
             "description": "S21 internal note 3317",
             "due_at": "2026-11-03T13:29:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3317",
             "state": "resolved"
           },
@@ -666,7 +666,7 @@
             "description": "S21 internal note 3327",
             "due_at": "2026-12-08T23:15:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3327",
             "state": "closed"
           },
@@ -683,7 +683,7 @@
             "description": "S21 internal note 3457",
             "due_at": "2026-05-20T21:25:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3457",
             "state": "closed"
           },
@@ -700,7 +700,7 @@
             "description": "S21 internal note 3575",
             "due_at": "2026-02-01T07:45:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3575",
             "state": "new"
           },
@@ -717,7 +717,7 @@
             "description": "S21 internal note 3579",
             "due_at": "2026-12-24T05:21:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3579",
             "state": "resolved"
           },
@@ -734,7 +734,7 @@
             "description": "S21 internal note 3690",
             "due_at": "2026-09-10T03:11:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3690",
             "state": "resolved"
           },
@@ -751,7 +751,7 @@
             "description": "S21 internal note 3796",
             "due_at": "2026-04-30T20:26:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3796",
             "state": "closed"
           },
@@ -768,7 +768,7 @@
             "description": "S21 internal note 3820",
             "due_at": "2026-07-28T04:47:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3820",
             "state": "new"
           },
@@ -785,7 +785,7 @@
             "description": "S21 internal note 3849",
             "due_at": "2026-03-30T19:09:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3849",
             "state": "closed"
           },
@@ -802,7 +802,7 @@
             "description": "S21 internal note 3876",
             "due_at": "2026-07-11T03:28:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3876",
             "state": "in_progress"
           },
@@ -819,7 +819,7 @@
             "description": "S21 internal note 3941",
             "due_at": "2026-07-06T04:22:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 3941",
             "state": "closed"
           },
@@ -836,7 +836,7 @@
             "description": "S21 internal note 4153",
             "due_at": "2026-12-04T04:20:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 4153",
             "state": "new"
           },
@@ -853,7 +853,7 @@
             "description": "S21 internal note 4207",
             "due_at": "2026-04-23T23:46:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 4207",
             "state": "closed"
           },
@@ -870,7 +870,7 @@
             "description": "S21 internal note 4383",
             "due_at": "2026-03-04T12:47:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 4383",
             "state": "closed"
           },
@@ -882,9 +882,10 @@
           "version": 1
         }
       ],
-      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTI4IDIyOjU3OjAwKzAwIiwiaSI6IjlkNzU1ZjI5LWJjMmEtOTMzMS0yNmY2LWU3MTFkNDc3NmMzOSJ9.xfKo7hXb0KiYRyJtgWIxt9yf2fZuoeoE01oVYR0xSPQ",
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTI4IDIyOjU3OjAwKzAwIiwiaSI6IjlkNzU1ZjI5LWJjMmEtOTMzMS0yNmY2LWU3MTFkNDc3NmMzOSJ9.8XGzNUC7KBL1fV0BOUqSwrQMbUM4gNSIEhZg4SuY3BM",
       "total": 1000,
-      "total_capped": true
+      "total_capped": true,
+      "total_state": "capped"
     }
   },
   "tests": [
@@ -905,7 +906,11 @@
       "status": "pass"
     },
     {
-      "test": "total: exact up to 1,000, then 1,000 and total_capped",
+      "test": "every page meets the total contract (A2-1): this page capped, the limit-200 pages [\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\"]",
+      "status": "pass"
+    },
+    {
+      "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
       "status": "pass"
     },
     {

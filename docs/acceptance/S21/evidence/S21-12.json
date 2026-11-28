@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident?filter[due_at]=2026-12-30T12:00:17Z&limit=200",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[due_at]=2026-12-30T12:00:17Z&limit=200",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -22,7 +22,7 @@
             "description": "S21 internal note 119529",
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 119529",
             "state": "in_progress"
           },
@@ -30,7 +30,7 @@
           "number": "INC0119529",
           "schema_version": 3,
           "state": "in_progress",
-          "updated_at": "2026-11-20T18:26:41.59218Z",
+          "updated_at": "2026-11-28T04:16:38.052195Z",
           "version": 2
         },
         {
@@ -39,7 +39,7 @@
             "description": "S21 internal note 292258",
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 292258",
             "state": "closed"
           },
@@ -47,39 +47,39 @@
           "number": "INC0292258",
           "schema_version": 3,
           "state": "closed",
-          "updated_at": "2026-11-20T18:26:41.523041Z",
+          "updated_at": "2026-11-28T04:16:38.02478Z",
           "version": 2
         },
         {
-          "created_at": "2026-11-20T18:26:41.376469Z",
+          "created_at": "2026-11-28T04:16:37.988189Z",
           "data": {
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
-            "short_description": "S21 a8086f38 created after the flip 2",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
+            "short_description": "S21 1f4961e2 created after the flip 2",
             "state": "new"
           },
-          "id": "01a1fa35-f05e-77e3-9880-894ea0f9c5ab",
+          "id": "01a2205e-9062-7bdc-8246-e71b95d9233b",
           "number": "INC0400006",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-20T18:26:41.376469Z",
+          "updated_at": "2026-11-28T04:16:37.988189Z",
           "version": 1
         },
         {
-          "created_at": "2026-11-20T18:26:41.307172Z",
+          "created_at": "2026-11-28T04:16:37.949391Z",
           "data": {
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
-            "short_description": "S21 a8086f38 created after the flip 1",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
+            "short_description": "S21 1f4961e2 created after the flip 1",
             "state": "new"
           },
-          "id": "01a1fa35-f019-776d-9e92-c32e342876d5",
+          "id": "01a2205e-903b-704f-8793-eff957143cc8",
           "number": "INC0400005",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-20T18:26:41.307172Z",
+          "updated_at": "2026-11-28T04:16:37.949391Z",
           "version": 1
         },
         {
@@ -88,7 +88,7 @@
             "description": "S21 internal note 309666",
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 309666",
             "state": "closed"
           },
@@ -96,7 +96,7 @@
           "number": "INC0309666",
           "schema_version": 3,
           "state": "closed",
-          "updated_at": "2026-11-20T18:08:33.193792Z",
+          "updated_at": "2026-11-28T03:56:00.80571Z",
           "version": 2
         },
         {
@@ -105,7 +105,7 @@
             "description": "S21 internal note 192851",
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 192851",
             "state": "closed"
           },
@@ -113,7 +113,7 @@
           "number": "INC0192851",
           "schema_version": 3,
           "state": "closed",
-          "updated_at": "2026-11-20T18:08:32.560837Z",
+          "updated_at": "2026-11-28T03:56:00.745307Z",
           "version": 2
         },
         {
@@ -122,7 +122,7 @@
             "description": "S21 internal note 246838",
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 246838",
             "state": "resolved"
           },
@@ -130,60 +130,61 @@
           "number": "INC0246838",
           "schema_version": 3,
           "state": "resolved",
-          "updated_at": "2026-11-20T18:08:32.457224Z",
+          "updated_at": "2026-11-28T03:56:00.001848Z",
           "version": 2
         },
         {
-          "created_at": "2026-11-20T18:08:32.376101Z",
+          "created_at": "2026-11-28T03:55:59.914168Z",
           "data": {
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
-            "short_description": "S21 a8086f38 created while indexing 3",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
+            "short_description": "S21 1f4961e2 created while indexing 3",
             "state": "new"
           },
-          "id": "01a1fa25-5276-771b-be29-580c07d92756",
+          "id": "01a2204b-ac26-7454-b06f-511121befab0",
           "number": "INC0400003",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-20T18:08:32.376101Z",
+          "updated_at": "2026-11-28T03:55:59.914168Z",
           "version": 1
         },
         {
-          "created_at": "2026-11-20T18:08:32.281928Z",
+          "created_at": "2026-11-28T03:55:59.849123Z",
           "data": {
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
-            "short_description": "S21 a8086f38 created while indexing 2",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
+            "short_description": "S21 1f4961e2 created while indexing 2",
             "state": "new"
           },
-          "id": "01a1fa25-5218-79e8-ae74-2227d672d1f1",
+          "id": "01a2204b-abe5-7f2d-bdd1-a3fce10cadcc",
           "number": "INC0400002",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-20T18:08:32.281928Z",
+          "updated_at": "2026-11-28T03:55:59.849123Z",
           "version": 1
         },
         {
-          "created_at": "2026-11-20T18:08:32.183046Z",
+          "created_at": "2026-11-28T03:55:59.776382Z",
           "data": {
             "due_at": "2026-12-30T12:00:17Z",
             "priority": 4,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
-            "short_description": "S21 a8086f38 created while indexing 1",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
+            "short_description": "S21 1f4961e2 created while indexing 1",
             "state": "new"
           },
-          "id": "01a1fa25-51b4-7add-957a-d9fc9e5c2535",
+          "id": "01a2204b-ab9d-72cf-9e81-386cb7844172",
           "number": "INC0400001",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-20T18:08:32.183046Z",
+          "updated_at": "2026-11-28T03:55:59.776382Z",
           "version": 1
         }
       ],
       "next_cursor": null,
-      "total": 10
+      "total": 10,
+      "total_state": "exact"
     }
   },
   "tests": [
@@ -200,7 +201,7 @@
       "status": "pass"
     },
     {
-      "test": "total 10",
+      "test": "total 10, exact: a short first page (A2-4)",
       "status": "pass"
     },
     {

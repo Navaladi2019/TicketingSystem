@@ -45,10 +45,21 @@ SELECT 'due_at',
           JOIN s21_inc i ON i.id = v.record_id
          WHERE v.tenant_id = '00000000-0000-4000-8000-0000000000a1' AND v.value <> (i.data->>'due_at')::timestamptz);
 
+-- Since S22 (TICK-752) tenant B's seeded incident type flags priority, so B
+-- has its own index rows. The isolation check: no tenant B side row under a
+-- field that is not one of tenant B's own registry rows (tenant A's flags
+-- never index B's records), and no tenant A field id in tenant B.
 SELECT 'tenant B side rows' AS check,
-       (SELECT count(*) FROM record_index_fields WHERE tenant_id = '00000000-0000-4000-8000-0000000000b1')
-     + (SELECT count(*) FROM rfv_num WHERE tenant_id = '00000000-0000-4000-8000-0000000000b1')
-     + (SELECT count(*) FROM rfv_ts WHERE tenant_id = '00000000-0000-4000-8000-0000000000b1') AS rows;
+       (SELECT count(*) FROM rfv_num v WHERE v.tenant_id = '00000000-0000-4000-8000-0000000000b1'
+           AND NOT EXISTS (SELECT 1 FROM record_index_fields f WHERE f.tenant_id = v.tenant_id AND f.id = v.field_id))
+     + (SELECT count(*) FROM rfv_ts v WHERE v.tenant_id = '00000000-0000-4000-8000-0000000000b1'
+           AND NOT EXISTS (SELECT 1 FROM record_index_fields f WHERE f.tenant_id = v.tenant_id AND f.id = v.field_id))
+     + (SELECT count(*) FROM rfv_num v JOIN record_index_fields f ON f.id = v.field_id AND f.tenant_id = '00000000-0000-4000-8000-0000000000a1'
+         WHERE v.tenant_id = '00000000-0000-4000-8000-0000000000b1') AS rows;
+SELECT 'tenant B priority side rows (its own index, 50 expected)' AS info, count(*) AS rows
+  FROM rfv_num v JOIN record_index_fields f ON f.tenant_id = v.tenant_id AND f.id = v.field_id AND f.field_key = 'priority'
+  JOIN entity_definitions d ON d.tenant_id = f.tenant_id AND d.id = f.entity_definition_id AND d.key = 'incident'
+ WHERE v.tenant_id = '00000000-0000-4000-8000-0000000000b1';
 
 -- The records criterion 4 wrote, by due_at: created or edited while the
 -- fields were backfilling and after they were ready.

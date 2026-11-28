@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident?filter[priority]=1&limit=1",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[priority]=1&limit=1",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -22,7 +22,7 @@
             "description": "S21 internal note 57",
             "due_at": "2026-06-21T15:41:00Z",
             "priority": 1,
-            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
+            "requester": "01a22044-6949-7208-b364-5eaaa88fd491",
             "short_description": "S21 seed 57",
             "state": "closed"
           },
@@ -34,9 +34,10 @@
           "version": 1
         }
       ],
-      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTMxIDIzOjAzOjAwKzAwIiwiaSI6IjM3YzhlYzdlLTg2ZjMtYzBiNS00NjRjLWFjNGYwYjNjMGRhZSJ9.FQf4y1zQWxFTlM35-MuprkrFEpfh-T0iWuUestf389s",
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTMxIDIzOjAzOjAwKzAwIiwiaSI6IjM3YzhlYzdlLTg2ZjMtYzBiNS00NjRjLWFjNGYwYjNjMGRhZSJ9.nVScaQFclisSV6gzsf0x7CLvbx49BkAXVj-ZQNFTtMg",
       "total": 1000,
-      "total_capped": true
+      "total_capped": true,
+      "total_state": "capped"
     }
   },
   "tests": [
@@ -45,7 +46,7 @@
       "status": "pass"
     },
     {
-      "test": "both fields ready after 1089 s and 73 polls",
+      "test": "both fields ready after 1238 s and 83 polls",
       "status": "pass"
     },
     {

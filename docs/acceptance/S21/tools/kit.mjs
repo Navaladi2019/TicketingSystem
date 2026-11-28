@@ -8,6 +8,8 @@
 //       2. publishes tenant A's incident ACL with its rules unchanged and one
 //          mask: `description` is read and written by the admins group only,
 //          so it is a masked field for Alice (criterion 3).
+//       3. as bob@tenant-b, creates tenant B's 50 incidents (priority 1)
+//          through the API.
 //     seed.sql then writes the 400k incidents at that version. Writes
 //     <evidence-dir>/setup.json (requests and answers, no credentials).
 //
@@ -93,6 +95,13 @@ async function setup() {
   const put = await call(tok, 'PUT', '/api/v1/entity-types/incident/access',
     { rules: pol.json.rules, masks: [mask] }, { 'If-Match': pol.etag });
   must(put.status === 200, `publish mask: HTTP ${put.status}`);
+  // Tenant B: 50 incidents, all priority 1, through the API (its priority is
+  // flagged by the seed template since TICK-752, so they must be indexed).
+  const bob = await token('bob@tenant-b.test', 'dev-only-bob');
+  for (let n = 1; n <= 50; n++) {
+    const r = await call(bob, 'POST', '/api/v1/records/incident', { data: { short_description: `S21 tenant B ${n}`, priority: 1 } });
+    must(r.status === 201, `tenant B incident ${n}: HTTP ${r.status}`);
+  }
   writeFileSync(join(dir, 'setup.json'), JSON.stringify(log, null, 2) + '\n');
   console.log(`s21 setup: incident version ${pub.json.version} has due_at; ACL version ${put.json.version} masks description (admins only)`);
 }

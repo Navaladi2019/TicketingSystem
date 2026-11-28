@@ -23,7 +23,7 @@
 --   n = 399999  due_at 2026-12-31T23:57:59Z, service-desk: Alice can see it (the control)
 -- The value 2026-12-31T23:58:59Z exists nowhere.
 --
--- Tenant B: 50 incidents, all priority 1, at its version 1 (no due_at).
+-- Tenant B: 50 incidents, all priority 1, created by kit.mjs setup through the API.
 \set ON_ERROR_STOP on
 \timing on
 SET max_parallel_workers_per_gather = 0;
@@ -82,25 +82,9 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next)
 SELECT tenant_id, def, 400001 FROM s21_ctx
 ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = GREATEST(record_counters.next, EXCLUDED.next);
 
--- Tenant B: 50 incidents, priority 1, at B's current version.
-INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
-                     requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data, causation_depth)
-SELECT d.tenant_id, md5('s21b/' || n)::uuid, 1, d.id, d.current_version, 'INC' || lpad(n::text, 7, '0'), 'new',
-       p.id, NULL, NULL, p.id,
-       timestamptz '2026-11-01 00:00:00+00' - n * interval '1 minute' - interval '1 day',
-       timestamptz '2026-11-01 00:00:00+00' - n * interval '1 minute',
-       jsonb_build_object('short_description', 'S21 tenant B ' || n, 'priority', 1),
-       0
-  FROM entity_definitions d
-  JOIN principals p ON p.tenant_id = d.tenant_id AND p.email = 'bob@tenant-b.test',
-       generate_series(1, 50) n
- WHERE d.tenant_id = '00000000-0000-4000-8000-0000000000b1' AND d.key = 'incident'
-   AND NOT EXISTS (SELECT 1 FROM records r WHERE r.tenant_id = d.tenant_id AND r.entity_definition_id = d.id);
-
-INSERT INTO record_counters (tenant_id, entity_definition_id, next)
-SELECT d.tenant_id, d.id, 51 FROM entity_definitions d
- WHERE d.tenant_id = '00000000-0000-4000-8000-0000000000b1' AND d.key = 'incident'
-ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = GREATEST(record_counters.next, EXCLUDED.next);
+-- Tenant B's 50 incidents (all priority 1) are created by kit.mjs setup
+-- through the API, as Bob: since S22 (TICK-752) the seed template flags
+-- priority in tenant B too, and a bulk write here would skip its index.
 
 SET session_replication_role = origin;
 RESET max_parallel_workers_per_gather;

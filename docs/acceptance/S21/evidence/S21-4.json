@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/entity-types/incident",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -121,7 +121,7 @@
       },
       "compat": "compatible",
       "number_format": null,
-      "published_at": "2026-11-20T18:03:01.036821Z"
+      "published_at": "2026-11-28T03:48:31.027328Z"
     }
   },
   "tests": [
