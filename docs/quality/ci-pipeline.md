@@ -349,7 +349,8 @@ tests, dealt round-robin over the shard clusters, one `go test -run` each; each
 `NAVA_IT_SOLO` package (default `./internal/server ./internal/groupsync`,
 TICK-1199) as `NAVA_IT_SOLO_SHARDS` (default 2) `go test -run` shards, its
 top-level tests dealt round-robin, each shard on a cluster of its own
-(`[solo-server-1]`, `[solo-server-2]`, `[solo-groupsync-1]`, `[solo-groupsync-2]`); the other packages that use the shared cluster
+(`[solo-server-1]`, `[solo-server-2]`, `[solo-groupsync-1]`,
+`[solo-groupsync-2]`); the other packages that use the shared cluster
 (`pooltest`, `tenancy`, `records/pipeline` and the rest, `-p 1`, since they
 create the same role); and the packages that use none (`health`, which starts
 its own container). A solo package must not need the PgBouncers, which front

@@ -56,16 +56,16 @@ while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$(
 # A solo package must not need the PgBouncers, which front the shared
 # cluster only. Its cluster is named after the shards (-s<n>), so make
 # reap-integration finds it. None on a run with go test arguments.
-# NAVA_IT_SOLO_SHARDS (default 2): each solo package runs as that many
-# go test processes, its top-level tests dealt round-robin over them, each on
-# a cluster of its own and under its own -timeout (TICK-1102). One process of
-# internal/server took 277 s to over 480 s on the same head (run 45024439126,
-# attempts 1 and 2): the runner's swing was larger than the headroom under 8m.
 # internal/groupsync joined internal/server (TICK-1199): with the story
 # branches' new packages the shared chain took about 700 s of a 15-minute job
 # (run 46051156428: records/pipeline 299 s, groupsync 175 s) and run
 # 46064898762 was cancelled at the bound with every group ok. groupsync uses
 # only NAVA_TEST_PG_URL; records/pipeline needs the PgBouncer, so it stays.
+# NAVA_IT_SOLO_SHARDS (default 2): each solo package runs as that many
+# go test processes, its top-level tests dealt round-robin over them, each on
+# a cluster of its own and under its own -timeout (TICK-1102). One process of
+# internal/server took 277 s to over 480 s on the same head (run 45024439126,
+# attempts 1 and 2): the runner's swing was larger than the headroom under 8m.
 solo=""
 solo_pgs=""
 solo_shards=${NAVA_IT_SOLO_SHARDS:-2}
