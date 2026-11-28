@@ -722,8 +722,23 @@ test("never tenant A's poison id", () => expect(JSON.stringify(N.json())).to.not
   expect(N.json()).to.not.have.property('instance');
 });"""),
             req("S29.24 AC6: tenant B's filter[priority]=3 lists none of tenant A's tickets", "GET", inc + "?filter[priority]=3&limit=200", auth="admin_b_token",
-                desc="Tenant B's incidents all hold priority 1 and B's type has no default, so its window is closed: 0 matches, `total` 0, and none of tenant A's ids.",
+                pre=KIT + """
+// Tenant B's own answer, from a full read of what B may see, filtered here in JS:
+// on a shared stack other suites may have left B incidents at priority 3.
+const every = await T.all('admin_b_token', 'incident', 'sort=created_at');
+const f = await T.all('admin_b_token', 'incident', 'filter[priority]=3');
+bru.setVar('s29_b_p3', JSON.stringify({ every_status: every.status, want: every.items.filter(i => i.data.priority === 3).map(i => i.id).sort(),
+  status: f.status, ids: [...f.ids].sort(), broken: f.broken }));""",
+                desc="The filter answers from tenant B's own index only. The test reads every incident tenant B may see and filters it in JS: `filter[priority]=3` must list exactly those, and none of tenant A's ids the kit knows (the poison record, the sampled missing and held records). On a fresh stack B's incidents all hold priority 1, so both sides are empty; on a shared stack other suites may have left B incidents at 3.",
                 tests="""N.status(200);
-test('no items, total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });"""),
+const o = JSON.parse(bru.getVar('s29_b_p3'));
+const a = [N.v('s29_poison_id'), ...N.v('s29_sample_missing').split(','), ...N.v('s29_sample_held').split(',')];
+test(`exactly tenant B's own priority 3 incidents (${o.want.length})`, () => {
+  expect(o.every_status).to.eql(200);
+  expect(o.status).to.eql(200);
+  expect(o.ids).to.eql(o.want);
+  expect(o.broken).to.eql([]);
+});
+test("none of tenant A's ids", () => expect(o.ids.filter(id => a.includes(id))).to.eql([]));"""),
         ],
     }

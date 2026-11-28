@@ -91,16 +91,28 @@ async function tok(user, pass) {
 }
 const ADMIN_A = ['admin@tenant-a.test', 'dev-only-admin-a'];
 const ADMIN_B = ['admin@tenant-b.test', 'dev-only-admin-b'];
+// A GET answered 429 (the 50/s tenant rate limit: on a fast host, such as the
+// CI runner, a read-back loop passes it) waits Retry-After and repeats; GETs
+// are safe to repeat. Counted in out.get_429_retries. A write's 429 is
+// returned as is.
+let get429 = 0;
 async function call(who, method, path, body, headers = {}) {
   const h = { Authorization: 'Bearer ' + (await tok(...who)), ...headers };
   if (body !== undefined && !h['Content-Type']) h['Content-Type'] = 'application/json';
   if (method !== 'GET' && !h['Idempotency-Key']) h['Idempotency-Key'] = 's29x-' + randomUUID();
-  const t0 = Date.now();
-  const r = await fetch(CORE + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
-  const text = await r.text();
-  let json = null;
-  try { json = JSON.parse(text); } catch { /* not JSON */ }
-  return { status: r.status, json, ms: Date.now() - t0 };
+  for (let attempt = 0; ; attempt++) {
+    const t0 = Date.now();
+    const r = await fetch(CORE + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+    const text = await r.text();
+    if (r.status === 429 && method === 'GET' && attempt < 20) {
+      get429++;
+      await sleep(Math.max(200, 1000 * (Number(r.headers.get('Retry-After')) || 1)));
+      continue;
+    }
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not JSON */ }
+    return { status: r.status, json, ms: Date.now() - t0 };
+  }
 }
 const backfill = async (who) => (await call(who, 'GET', '/api/v1/entity-types/incident')).json.backfill;
 async function publish(who, mutate, what) {
@@ -267,7 +279,9 @@ async function e1() {
   const lost = [];
   for (const [id, desc] of Object.entries(last)) {
     const r = await call(ADMIN_A, 'GET', '/api/v1/records/incident/' + id);
-    if (r.json.data.description !== desc || r.json.data.s29_x1 !== 'a') lost.push({ id, description: r.json.data.description, s29_x1: r.json.data.s29_x1 });
+    const d = (r.status === 200 && r.json && r.json.data) || null;
+    if (!d) { lost.push({ id, status: r.status, code: r.json && r.json.code }); continue; }
+    if (d.description !== desc || d.s29_x1 !== 'a') lost.push({ id, description: d.description, s29_x1: d.s29_x1 });
   }
   const stored = Number(psql(`SELECT count(*) FROM records WHERE tenant_id = '${A}' AND id = ANY (ARRAY[${Object.keys(last).map((i) => `'${i}'::uuid`).join(',')}]) AND data->>'s29_x1' = 'a';`));
   const bmax = Math.max(...stats.baseline), dmax = Math.max(...stats.during);
@@ -379,6 +393,7 @@ let failed = null;
 for (const [name, f] of [['E1', e1], ['E2', e2], ['E3', e3], ['E4', e4]]) {
   try { console.log(`s29 extras: ${name} (${new Date().toISOString()})`); await f(); } catch (e) { failed = failed || e; check(`${name} ran to the end`, String(e.message).slice(0, 200), false); }
 }
+out.get_429_retries = get429;
 out.finished_at = new Date().toISOString();
 writeFileSync(join(dir, 'extras.json'), JSON.stringify(out, null, 2) + '\n');
 writeFileSync(join(dir, 'extras.txt'), checks.join('\n') + '\n');
