@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-006 amendment A3 explained (DRAFT, rev 0): promoted filter slots</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:90%}
+.box{border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:14px 0;background:var(--soft)}
+.good{background:var(--goodbg);border-color:var(--good)}
+.bad{background:var(--badbg);border-color:var(--bad)}
+dt{font-weight:700;margin-top:8px}
+svg text{fill:var(--fg);font:13px sans-serif}
+svg .m{fill:var(--muted)}
+</style></head><body><main>
+<span class="pill">DRAFT · rev 0 · 2026-11-28 · not yet in critique</span>
+<h1>ADR-006 amendment A3: keep a slow custom field's value on the ticket row, in a shared spare column</h1>
+<p class="src">Record: <code>docs/adr/ADR-006-A3-promoted-filter-slots.md</code> · Issue TICK-1039 · Evidence: <code>docs/adr/ADR-006/spikes/a3-promoted-slots/</code> (TICK-1039 arms, PR #920) · Write-path cost: TICK-1205, not yet run · Amends ADR-006 D2, D4, D7, D12, D13 and A1-6.</p>
+
+<div class="box bad"><b>Why this is still a draft.</b> The design that passed is one we turned down twice before, because of what it costs every ticket save. That cost has not been measured yet. TICK-1205 measures it, and this page does not ask for a decision until that report is in.</div>
+
+<h2>Words used here</h2>
+<dl>
+<dt>p95</dt><dd>The time that 95 out of 100 requests beat. Our target for a ticket list is 150 ms.</dd>
+<dt>Filterable field</dt><dd>A custom field a tenant defines (for example "priority") that users can filter lists on.</dd>
+<dt>Side table (D7)</dt><dd>Today's design. Each filterable value is copied into a separate table, and the list asks "does this ticket have a matching row there?" (an <code>EXISTS</code> check) for each ticket it considers.</dd>
+<dt>Row ACL</dt><dd>The rule that an agent sees only tickets in their assignment groups, plus tickets shared with them, raised by them or assigned to them.</dd>
+<dt>Index</dt><dd>A sorted lookup structure. The database updates every index on a table each time a row is saved, so each index adds write time.</dd>
+<dt>Slot</dt><dd>A spare, typed column on the tickets table (<code>records</code>) that holds one promoted field's value. The same slot can mean different fields for different tenants and ticket types.</dd>
+<dt>I8</dt><dd>A platform rule: a tenant's configuration change never adds tables or columns to the database (no "tenant-motivated DDL").</dd>
+<dt>RLS</dt><dd>Row-level security. PostgreSQL itself refuses to return another tenant's rows.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>A list shows the newest 51 matching tickets. With the side table, the database usually walks tickets newest-first and checks each one. That is fast when matches are common and recent. It is slow when the matching tickets are old, or hidden from this agent: the walk goes through everything the agent can see and finds little. On a 400,000-ticket type, an agent who sees half the tickets waited <b>2.2 seconds</b> for a value none of their tickets had. A1's planned fix ("adaptive", which picks a walk from an estimate) did worse, up to <b>4.4 s</b>, because it moved the same walk somewhere else.</p>
+
+<svg viewBox="0 0 760 210" width="100%" role="img" aria-label="Worst p95 per design">
+<text x="10" y="20">Worst of 11 cases, p95 ms (bars not to scale; dashed line = 150 ms)</text>
+<rect x="190" y="35" width="460" height="26" fill="var(--bad)"/><text x="10" y="53">(a) adaptive</text><text x="660" y="53">4,377</text>
+<rect x="190" y="70" width="380" height="26" fill="var(--bad)"/><text x="10" y="88">D7 today</text><text x="580" y="88">2,223</text>
+<rect x="190" y="105" width="125" height="26" fill="var(--warn)"/><text x="10" y="123">(b) plain index</text><text x="325" y="123">163.6</text>
+<rect x="190" y="140" width="100" height="26" fill="var(--good)"/><text x="10" y="158">(b) + group key</text><text x="300" y="158">131.3</text>
+<line x1="305" y1="30" x2="305" y2="175" stroke="currentColor" stroke-dasharray="4 3"/><text class="m" x="280" y="195">150 ms</text>
+</svg>
+
+<h2>What was tried (TICK-1039, idle host, 2026-11-28)</h2>
+<table>
+<tr><th>Design</th><th>Cases passing (of 11)</th><th>What happens</th></tr>
+<tr><td>D7 today</td><td>2</td><td>Walks the agent's visible tickets checking the side table. 2,223 ms at worst.</td></tr>
+<tr><td>(a) adaptive</td><td>2</td><td>Helps only when matches are spread evenly over time. The test cases were built so they are not.</td></tr>
+<tr><td>(b) value on the ticket row, plain index</td><td>10</td><td>Misses one case (163.6 ms): counting a value that half the tickets have.</td></tr>
+<tr><td><b>(b) value on the ticket row, index includes the assignment group</b></td><td><b>11</b></td><td>The database jumps straight to "this value, in my groups, newest first". 27–131 ms.</td></tr>
+</table>
+
+<h2>The decision (proposed)</h2>
+<div class="box good">
+<p><b>An operator can "promote" a slow filterable field.</b> Its value is then also kept in a spare typed column on the tickets table, with an index on tenant, ticket type, value, assignment group and update time. Lists that filter on that field use the column. Every other field keeps today's design unchanged.</p>
+</div>
+<ul>
+<li><b>No new column per field.</b> The tested design added a column for the field. That breaks I8 and would pile up columns for every tenant's fields. Instead, one migration adds a fixed handful of spare columns (proposed: 2 per value type, 8 in all). Each has one index that covers only tickets where the column is filled. Promoting a field just records "field X of type Y uses slot 1" and copies the values in.</li>
+<li><b>Who runs the database change:</b> nobody, per field. The spare columns ship once, written by the Postgres specialist, reviewed by Security and applied by the normal deploy. After that, promotion is configuration.</li>
+<li><b>Which fields:</b> only fields an operator approves, only single-value fields, and the default allowance is zero. The signal to promote is the slow-list log that A1 already added: a tenant's type showing filters over the limit, or a type with more than 400,000 tickets.</li>
+<li><b>Safety:</b> the column is on the tickets table, so RLS already isolates it. Its values are never returned to users, only compared. A masked field still cannot be filtered.</li>
+<li><b>While copying:</b> the field keeps filtering through the side table, so users see no error while a promotion or a removal runs.</li>
+</ul>
+
+<svg viewBox="0 0 760 150" width="100%" role="img" aria-label="Promotion flow">
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8z" fill="currentColor"/></marker></defs>
+<rect x="10" y="40" width="150" height="50" rx="8" fill="var(--soft)" stroke="var(--bd)"/><text x="22" y="62">Slow-list log shows</text><text x="22" y="80">a miss on a field</text>
+<rect x="200" y="40" width="140" height="50" rx="8" fill="var(--soft)" stroke="var(--bd)"/><text x="212" y="62">Operator raises</text><text x="212" y="80">promoted quota</text>
+<rect x="380" y="40" width="160" height="50" rx="8" fill="var(--soft)" stroke="var(--bd)"/><text x="392" y="62">Field gets a free slot;</text><text x="392" y="80">values copied in batches</text>
+<rect x="580" y="40" width="170" height="50" rx="8" fill="var(--goodbg)" stroke="var(--good)"/><text x="592" y="62">Lists use the slot</text><text x="592" y="80">(side table until ready)</text>
+<path d="M160 65h38M340 65h38M540 65h38" stroke="currentColor" marker-end="url(#a)"/>
+<text class="m" x="10" y="130">No step adds a table or column: the spare columns already exist.</text>
+</svg>
+
+<h2>Options turned down</h2>
+<table>
+<tr><th>Option</th><th>Why not</th></tr>
+<tr><td>A new column per promoted field</td><td>Breaks I8, locks the tickets table on each add, and columns pile up across tenants.</td></tr>
+<tr><td>The per-tenant index that I8 does allow</td><td>It indexes the raw JSON value, and PostgreSQL will not use that index under RLS for these comparisons.</td></tr>
+<tr><td>Promote every filterable field</td><td>Each promotion slows every save of that ticket type, and most types never need it.</td></tr>
+<tr><td>(a) adaptive</td><td>Measured worse than today (2 of 11).</td></tr>
+<tr><td>Limit how many tickets an agent may see in this band</td><td>Today's design also fails with no ACL and with narrow ACLs, so a limit does not fix it.</td></tr>
+<tr><td>Keep today's design and rely on A2's count time limit</td><td>A2 limits the count. The 2.2 s is the page itself.</td></tr>
+</table>
+
+<h2>What we would be accepting</h2>
+<table>
+<tr><th>Risk</th><th>In plain words</th><th>Measured?</th></tr>
+<tr><td>Save cost (R-g)</td><td>Each promoted field adds an index update to every save of that ticket type.</td><td>TICK-1205</td></tr>
+<tr><td>Copy cost (R-e)</td><td>Promoting a field rewrites every ticket row of the type once (log volume, temporary bloat).</td><td>TICK-1205, plus the slot-specific cell requested</td></tr>
+<tr><td>Page grows with tenant size (R-c)</td><td>For a value half the tickets have, the database still sorts every match the agent can see (15,482 rows in the worst case). A per-group query shape may fix this.</td><td>TICK-1205 S-b1, S-b3</td></tr>
+<tr><td>Shared column statistics (R-d)</td><td>One spare column means different fields for different tenants, so the database's guesses about it could go wrong.</td><td>Not yet; requested</td></tr>
+<tr><td>Other ACL paths (R-f)</td><td>Only "my groups" is sped up. Tickets visible through shares are checked afterwards.</td><td>Watched by the slow-list log</td></tr>
+</table>
+
+<h2>Evidence</h2>
+<ul>
+<li>44 scored cases (4 designs × 11 fixtures), each with its query plan, on an idle host (transport floor 0.54–1.52 ms): <code>docs/adr/ADR-006/spikes/a3-promoted-slots/</code>.</li>
+<li>Measured only for a number field with an exact-match filter, on a 400,000-ticket type. Other operators, text fields, 10–20% values with an ACL, and shared slots are listed as gaps and are requested before critique.</li>
+<li>No test has gone from red to green yet: this is a design. The CI tests it adds are listed in the record (A3-6, A3-8).</li>
+</ul>
+</main></body></html>
