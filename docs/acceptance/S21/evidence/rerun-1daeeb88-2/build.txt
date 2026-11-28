@@ -1,0 +1,3 @@
+f313d63c3fb0a310bc1c626c097d3d2dbf81e65c
+docker: 16 CPUs, 26260877312 bytes, 29.9.3
+other containers: multica-backend-1 multica-frontend-1 multica-postgres-1 

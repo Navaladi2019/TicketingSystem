@@ -2,6 +2,17 @@
 
 Kit task TICK-749 (PLAN-007 P7-09). Story branch `TICK-739/filterable-fields` at `7284e2f2` (every task merged: TICK-741 to TICK-748, the P7-07 fixes TICK-989 to TICK-992, and the ADR-006-A1 budget row, TICK-1001). Design: ADR-006 D1 to D10, D12, D13 as amended by ADR-006-A1, D14. Budget row: `docs/budgets.md`, "Filtering on a flagged data field (S21)".
 
+**Re-run after TICK-1195 merged `main` (TICK-1121 and 10 others) into the story branch, story head `1daeeb88` (2026-11-27): PASS, no regression.** Two fresh stacks (`docker compose down -v`, project `nava-s21`). The product code is `1daeeb88` on both. The second run adds only the kit fix `f313d63c`.
+
+| Run (evidence) | Requests / tests | Criteria 1, 3, 4, 5 and the rows of 2 | `verify.sql` | p95 cells (limit) | Result |
+|---|---|---|---|---|---|
+| `rerun-1daeeb88/` | 18 of 19 passed, 89/89 tests | ✅ | both side tables equal the JSON scan of 400,006 records; tenant B 0 rows | measured (log), not in the evidence | kit FAIL: S21.19's own request got `socket hang up` after its cells, so no cells were recorded |
+| `rerun-1daeeb88-2/` | 19/19, 112/112 tests | ✅ | the same | admin `priority=1` 248 (350), admin `priority=3` 47 (150), admin two-filter 59 (150), Alice `priority=1` 133 (350), Alice two-filter 82 (150); ≥ 40% ACL cell 60, recorded; controls 38 / 40 | **`s21: PASS`, `kit report: PASS`** |
+
+Both runs are `run validity: VOID` because another job's `go test` was running when they started (`host-check.txt`). The cells still passed under that load. These runs check for regressions and don't count toward A2-8 (7), which was met on `a2-stack1/` and `a2-stack2/`.
+
+The first run's hang up was a kit race, not the merge. S21.19 ran its ~136 s of cells in its pre-request script, longer than nava-core's 120 s `NAVA_HTTP_IDLE_TIMEOUT`, so its own request could reuse a keep-alive socket the server had already closed. The cells now run in `script:post-response` (`f313d63c`).
+
 **ADR-006-A2 A2-8 (7) MET (TICK-1049, 2026-11-22 08:43Z to 09:40Z): two consecutive valid green fresh stacks, `evidence/a2-stack1/` and `evidence/a2-stack2/`, both built from `49c3ab50`** (this kit + `TICK-1046/count-budget` at `39921c66`, with TICK-1084). Each run's `host-check.txt` shows a quiet host at start, and its `p95.txt` ends `run validity: VALID` and `kit report: PASS`. Both Bruno folders: 0 failed tests. Both `verify.sql`: side tables equal the JSON scan, and tenant B has no index rows.
 
 | Stack | ≥ 40% ACL p95 (350) | its `unknown` | `rfv_num` all-visible at the cell | page plan (`page-plan.txt`) | admin no-filter control p95 (≤ 80) | Alice no-filter control p95 |
