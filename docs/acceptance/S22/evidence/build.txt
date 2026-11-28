@@ -1,4 +1,4 @@
-39a978be9d75c974dd6f2f16571dd666396749fe
+31b6629a3884f68e8d6f199cab7aaea2a6fb70b0
 modified:  M docs/acceptance/S22/evidence/S22-10.json
 modified:  M docs/acceptance/S22/evidence/S22-11.json
 modified:  M docs/acceptance/S22/evidence/S22-12.json
@@ -50,6 +50,8 @@ modified:  D docs/acceptance/S29/evidence/S29-8.json
 modified:  D docs/acceptance/S29/evidence/S29-9.json
 modified:  D docs/acceptance/S29/evidence/build.txt
 modified:  M docs/acceptance/S29/evidence/expect.txt
+modified:  D docs/acceptance/S29/evidence/extras.json
+modified:  D docs/acceptance/S29/evidence/extras.txt
 modified:  M docs/acceptance/S29/evidence/held.env
 modified:  D docs/acceptance/S29/evidence/result.txt
 modified:  D docs/acceptance/S29/evidence/run-summary.json
@@ -57,4 +59,3 @@ modified:  M docs/acceptance/S29/evidence/seed.txt
 modified:  M docs/acceptance/S29/evidence/setup.json
 modified:  D docs/acceptance/S29/evidence/verify.txt
 modified:  D docs/acceptance/S29/evidence/worker-backfill-log.txt
-modified:  M docs/acceptance/S29/tools/extras.mjs

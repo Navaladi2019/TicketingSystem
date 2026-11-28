@@ -5,15 +5,15 @@
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
-      "Content-Length": "1332",
+      "Content-Length": "1395",
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s29-0126f48f-required-default",
+      "Idempotency-Key": "s29-1ca73f95-required-default",
       "Content-Type": "application/json",
       "Cookie": "********"
     },
-    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\",\"s29_tier\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"x-nava-filterable\":true,\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"s29_level\":{\"type\":\"integer\",\"title\":\"Level\",\"enum\":[1,2,3,4],\"x-nava-filterable\":true,\"default\":3},\"s29_tier\":{\"type\":\"string\",\"title\":\"Tier\",\"maxLength\":32,\"default\":\"standard\"}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
+    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\",\"s29_tier\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"x-nava-filterable\":true,\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"s29_level\":{\"type\":\"integer\",\"title\":\"Level\",\"enum\":[1,2,3,4],\"x-nava-filterable\":true,\"default\":3},\"s29_tier\":{\"type\":\"string\",\"title\":\"Tier\",\"maxLength\":32,\"default\":\"standard\"},\"s22_note\":{\"type\":\"string\",\"title\":\"S22 note\",\"maxLength\":64}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
   },
   "response": {
     "status": 201,
@@ -22,7 +22,7 @@
       "name": "Incident",
       "number_prefix": "INC",
       "numbering_mode": "gaps",
-      "version": 4,
+      "version": 5,
       "current": true,
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -100,10 +100,15 @@
             "title": "Tier",
             "maxLength": 32,
             "default": "standard"
+          },
+          "s22_note": {
+            "type": "string",
+            "title": "S22 note",
+            "maxLength": 64
           }
         }
       },
-      "schema_sha256": "bc6b7cd220cddded06aed1222cf73c96798a46f3b11c0ccca78e19185614c7b6",
+      "schema_sha256": "e79ec75a1101b53b6dbc3c6b5034732e3d5045b85622d065600cdeb1ea2bca5b",
       "fixed_columns": {
         "assignee": "assignee_id",
         "assignment_group": "assignment_group_id",
@@ -139,7 +144,7 @@
       },
       "compat": "needs_backfill",
       "number_format": null,
-      "published_at": "2026-11-28T03:02:46.025645Z"
+      "published_at": "2026-11-28T11:16:54.933235Z"
     }
   },
   "tests": [

@@ -1,5 +1,10 @@
-check|E1 CI-4 writes during the job (4 writers)|1889|ok
-check|E1 CI-4 slowest live write during the job <= baseline slowest + 250 ms|566 ms vs 237 ms|FAIL
+check|E1 CI-4 writes during the job (4 writers)|984|ok
+check|E1 CI-4 server sampler covered the job|32864 samples over 72.7 s (every 2.213 ms on average); 4917 backfill transactions seen|ok
+check|E1 CI-4 positive control: the sampler sees a held row lock (4 s, not a backfill backend)|lock held first: true; PATCH 200 in 3579 ms; 1 wait(s) on anything else, longest 3501.709 ms|ok
+check|E1 CI-4 no live write blocked by more than one backfill backend at once|max 0 at once; 0 waits on a backfill backend, 1 on anything else|ok
+check|E1 CI-4 longest wait on a backfill backend <= p99 of one backfill transaction, same run|0 ms vs p99 36.886 ms (p50 6.252, max 160.855)|ok
+info|E1 CI-4 client PATCH latency, no job (information only)|p50 47 / p99 80 / max 82 ms
+info|E1 CI-4 client PATCH latency, during the job (information only)|p50 71 / p99 135 / max 458 ms
 check|E1 CI-4 every 412 retried to success, no write failed|0 412s, 0 retried, 0 failed|ok
 check|E1 CI-4 no lost update (last description and the job value both stored)|0 lost of 200; 200 stored s29_x1|ok
 check|E1 CI-4 the job ended|failed_records|ok
@@ -8,6 +13,6 @@ check|E2 CI-11 the job ended after the kill|failed_records|ok
 check|E2 CI-11 exactly one new schema-backfill audit entry per rewritten record|deltas {"0":1,"1":2049}, 0 wrong|ok
 check|E3 the worker ran with the override|NAVA_SCHEMA_BACKFILL_CONCURRENCY=1|ok
 check|E3 both tenants' jobs ended|A failed_records, B done|ok
-check|E3 concurrency 1: the two tenants' jobs ran one after the other, not in parallel|A 2026-11-28T03:08:23.717894Z..2026-11-28T03:10:12.110411Z, B 2026-11-28T03:08:26.754102Z..2026-11-28T03:10:17.511858Z, overlap 105356 ms|FAIL
+check|E3 concurrency 1: the two tenants' jobs ran one after the other, not in parallel|A 2026-11-28T11:25:04.707443Z..2026-11-28T11:25:54.637853Z, B 2026-11-28T11:25:06.228344Z..2026-11-28T11:26:00.902955Z, overlap 48409 ms|FAIL (pending TICK-1208)
 check|E4 R9 schema.backfill workflows found|6|ok
-check|E4 R9 largest schema.backfill history (limit 51200; fails over half)|268 events (0.5%) in t:<tenant>:schema.backfill:42477e5f-496c-4bcf-affb-91c7c75ab3be:7|ok
+check|E4 R9 largest schema.backfill history (limit 51200; fails over half)|266 events (0.5%) in t:<tenant>:schema.backfill:624dd102-9f32-4034-a1dd-def22b209d4b:9|ok

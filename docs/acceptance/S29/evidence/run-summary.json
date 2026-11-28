@@ -192,7 +192,7 @@
           "status": "pass"
         },
         {
-          "test": "job state running: pending, filling or running, with counts",
+          "test": "job state pending: pending, filling or running, with counts",
           "status": "pass"
         },
         {
@@ -226,7 +226,7 @@
           "status": "pass"
         },
         {
-          "test": "the job ended failed_records after 71 s and 35 samples",
+          "test": "the job ended failed_records after 47 s and 24 samples",
           "status": "pass"
         },
         {

@@ -20,7 +20,7 @@
       "name": "Incident",
       "number_prefix": "INC",
       "numbering_mode": "gaps",
-      "version": 4,
+      "version": 5,
       "current": true,
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -98,10 +98,15 @@
             "title": "Tier",
             "maxLength": 32,
             "default": "standard"
+          },
+          "s22_note": {
+            "type": "string",
+            "title": "S22 note",
+            "maxLength": 64
           }
         }
       },
-      "schema_sha256": "bc6b7cd220cddded06aed1222cf73c96798a46f3b11c0ccca78e19185614c7b6",
+      "schema_sha256": "e79ec75a1101b53b6dbc3c6b5034732e3d5045b85622d065600cdeb1ea2bca5b",
       "fixed_columns": {
         "assignee": "assignee_id",
         "assignment_group": "assignment_group_id",
@@ -137,16 +142,16 @@
       },
       "compat": "needs_backfill",
       "number_format": null,
-      "published_at": "2026-11-28T03:02:46.025645Z",
+      "published_at": "2026-11-28T11:16:54.933235Z",
       "backfill": {
         "failed": 1,
-        "finished_at": "2026-11-28T03:03:48.69926Z",
+        "finished_at": "2026-11-28T11:17:34.257429Z",
         "remaining": 1,
         "rewritten": 2049,
         "skipped": 0,
-        "started_at": "2026-11-28T03:02:46.25661Z",
+        "started_at": "2026-11-28T11:16:55.285184Z",
         "state": "failed_records",
-        "target_version": 4
+        "target_version": 5
       }
     }
   },

@@ -1,6 +1,6 @@
 {
   "requests": 24,
-  "tests": 75,
+  "tests": 76,
   "failed": 0,
   "results": [
     {
@@ -106,6 +106,10 @@
       "status": 400,
       "tests": [
         {
+          "test": "incident has s22_note (kit setup), not flagged",
+          "status": "pass"
+        },
+        {
           "test": "HTTP 400",
           "status": "pass"
         },
@@ -118,7 +122,7 @@
           "status": "pass"
         },
         {
-          "test": "errors[] points at /filter/short_description",
+          "test": "errors[] points at /filter/s22_note",
           "status": "pass"
         }
       ]
@@ -160,7 +164,7 @@
           "status": "pass"
         },
         {
-          "test": "ready after 27 s",
+          "test": "ready after 24 s",
           "status": "pass"
         },
         {

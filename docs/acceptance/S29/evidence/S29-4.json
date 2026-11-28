@@ -19,7 +19,7 @@
       "name": "Incident",
       "number_prefix": "INC",
       "numbering_mode": "gaps",
-      "version": 2,
+      "version": 3,
       "current": true,
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -94,10 +94,15 @@
             "type": "string",
             "title": "Tier",
             "maxLength": 32
+          },
+          "s22_note": {
+            "type": "string",
+            "title": "S22 note",
+            "maxLength": 64
           }
         }
       },
-      "schema_sha256": "4a23d51c0cb5046bb49b75d29cc59c7528714d39bc6bc058800596da814d6e0e",
+      "schema_sha256": "6ab03d119613addc7b1232277318c585405f5c1a7f854ec845f35d80b9379137",
       "fixed_columns": {
         "assignee": "assignee_id",
         "assignment_group": "assignment_group_id",
@@ -133,7 +138,7 @@
       },
       "compat": "compatible",
       "number_format": null,
-      "published_at": "2026-11-28T02:56:26.226815Z"
+      "published_at": "2026-11-28T11:14:07.288917Z"
     }
   },
   "tests": [

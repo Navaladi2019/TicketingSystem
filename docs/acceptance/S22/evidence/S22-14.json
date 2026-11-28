@@ -27,7 +27,7 @@
           "number": "SAST0000048",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-28T02:58:32.797059Z",
+          "updated_at": "2026-11-28T11:14:43.482409Z",
           "version": 2
         },
         {
@@ -41,7 +41,7 @@
           "number": "SAST0000028",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-28T02:58:32.758228Z",
+          "updated_at": "2026-11-28T11:14:43.457773Z",
           "version": 2
         },
         {
@@ -55,49 +55,49 @@
           "number": "SAST0000008",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-28T02:58:32.71799Z",
+          "updated_at": "2026-11-28T11:14:43.431125Z",
           "version": 2
         },
         {
-          "created_at": "2026-11-28T02:58:32.673442Z",
+          "created_at": "2026-11-28T11:14:43.408983Z",
           "data": {
-            "name": "S22 01119140 created during removal 3",
+            "name": "S22 34c8e261 created during removal 3",
             "s22_code": "K07",
             "state": "new"
           },
-          "id": "01a22017-125f-7de1-8678-48c34de25a7d",
+          "id": "01a221dd-5650-777d-b077-f65cc924630c",
           "number": "SAST0020003",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-28T02:58:32.673442Z",
+          "updated_at": "2026-11-28T11:14:43.408983Z",
           "version": 1
         },
         {
-          "created_at": "2026-11-28T02:58:32.651164Z",
+          "created_at": "2026-11-28T11:14:43.394678Z",
           "data": {
-            "name": "S22 01119140 created during removal 2",
+            "name": "S22 34c8e261 created during removal 2",
             "s22_code": "K07",
             "state": "new"
           },
-          "id": "01a22017-1249-7ed6-ba24-7455dbc24e22",
+          "id": "01a221dd-5642-713f-a502-e402db981532",
           "number": "SAST0020002",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-28T02:58:32.651164Z",
+          "updated_at": "2026-11-28T11:14:43.394678Z",
           "version": 1
         },
         {
-          "created_at": "2026-11-28T02:58:32.629629Z",
+          "created_at": "2026-11-28T11:14:43.37924Z",
           "data": {
-            "name": "S22 01119140 created during removal 1",
+            "name": "S22 34c8e261 created during removal 1",
             "s22_code": "K07",
             "state": "new"
           },
-          "id": "01a22017-1234-775f-8bbe-bf38460975f5",
+          "id": "01a221dd-5631-78e9-85e5-604020eaf4eb",
           "number": "SAST0020001",
           "schema_version": 3,
           "state": "new",
-          "updated_at": "2026-11-28T02:58:32.629629Z",
+          "updated_at": "2026-11-28T11:14:43.37924Z",
           "version": 1
         },
         {
@@ -2817,7 +2817,7 @@
           "version": 1
         }
       ],
-      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTI5IDA3OjMzOjAwKzAwIiwiaSI6IjQ2NjJhZWRkLTY0ZjYtMWZiMC04ZWYzLWZiOTJlMDc1YWVlNiJ9.7d_7cUvYPu38AYZcZYbTjZAkvea6eEI69JJIffl1DNA",
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTI5IDA3OjMzOjAwKzAwIiwiaSI6IjQ2NjJhZWRkLTY0ZjYtMWZiMC04ZWYzLWZiOTJlMDc1YWVlNiJ9.AgEYCr6XvjkItvFfiIRAsmirQ7YKjM4oasHsoFror_I",
       "total": 1000,
       "total_capped": true,
       "total_state": "capped"

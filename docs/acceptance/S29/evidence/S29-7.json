@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:18080/api/v1/workflow-definitions/s29_on_update_0126f48f/versions",
+    "url": "http://127.0.0.1:18080/api/v1/workflow-definitions/s29_on_update_1ca73f95/versions",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s29-0126f48f-wf",
+      "Idempotency-Key": "s29-1ca73f95-wf",
       "Content-Type": "application/json"
     },
     "body": "{\n  \"format\": \"nava.workflow/v1\",\n  \"trigger\": {\n    \"on\": \"record.updated\",\n    \"entity\": \"incident\"\n  },\n  \"start\": \"wait\",\n  \"steps\": [\n    {\n      \"key\": \"wait\",\n      \"type\": \"timer\",\n      \"duration\": \"PT1H\",\n      \"next\": \"done\"\n    },\n    {\n      \"key\": \"done\",\n      \"type\": \"end\"\n    }\n  ]\n}"
@@ -17,11 +17,11 @@
   "response": {
     "status": 201,
     "body": {
-      "key": "s29_on_update_0126f48f",
+      "key": "s29_on_update_1ca73f95",
       "entity": "incident",
       "version": 1,
       "current": true,
-      "version_id": "01a22019-92ab-7d95-bc19-b4d4f8bab689",
+      "version_id": "01a221de-69d0-7eb7-b88c-208fc9b4ff2f",
       "body": {
         "format": "nava.workflow/v1",
         "trigger": {
@@ -44,10 +44,10 @@
       },
       "body_sha256": "95bf07a9f6bd2b4e5a362a33d1c0a319f2263b6ecfe346ae2d1314be5bd6e5cd",
       "step_ids": {
-        "done": "01a22019-92ab-7d19-9263-0dbf4b79bb4b",
-        "wait": "01a22019-92ab-7d04-8a07-8aea5de2a24f"
+        "done": "01a221de-69d0-7e74-bea7-85dce3b9d5d4",
+        "wait": "01a221de-69d0-7e6f-ab40-57df0af0e8fb"
       },
-      "published_at": "2026-11-28T03:01:16.573306Z"
+      "published_at": "2026-11-28T11:15:53.930009Z"
     }
   },
   "tests": [

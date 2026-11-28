@@ -5,14 +5,14 @@
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
-      "Content-Length": "1299",
+      "Content-Length": "1362",
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s29-0126f48f-required-no-default",
+      "Idempotency-Key": "s29-1ca73f95-required-no-default",
       "Content-Type": "application/json"
     },
-    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\",\"s29_tier\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"x-nava-filterable\":true,\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"s29_level\":{\"type\":\"integer\",\"title\":\"Level\",\"enum\":[1,2,3,4],\"x-nava-filterable\":true},\"s29_tier\":{\"type\":\"string\",\"title\":\"Tier\",\"maxLength\":32}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
+    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\",\"s29_tier\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"x-nava-filterable\":true,\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"s29_level\":{\"type\":\"integer\",\"title\":\"Level\",\"enum\":[1,2,3,4],\"x-nava-filterable\":true},\"s29_tier\":{\"type\":\"string\",\"title\":\"Tier\",\"maxLength\":32},\"s22_note\":{\"type\":\"string\",\"title\":\"S22 note\",\"maxLength\":64}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
   },
   "response": {
     "status": 422,
@@ -22,7 +22,7 @@
       "status": 422,
       "code": "schema_breaking_change",
       "detail": "The new version cannot be applied to existing records. See errors for the offending paths.",
-      "instance": "urn:nava:request:13db0beaeedf677a5fd84058cde1373b",
+      "instance": "urn:nava:request:6401a11481e15d2c8f21c4b035e4824a",
       "errors": [
         {
           "pointer": "/definition/schema/required",
