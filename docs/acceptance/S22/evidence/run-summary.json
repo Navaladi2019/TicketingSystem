@@ -106,10 +106,6 @@
       "status": 400,
       "tests": [
         {
-          "test": "incident has s22_note (kit setup), not flagged",
-          "status": "pass"
-        },
-        {
           "test": "HTTP 400",
           "status": "pass"
         },
@@ -123,6 +119,10 @@
         },
         {
           "test": "errors[] points at /filter/s22_note",
+          "status": "pass"
+        },
+        {
+          "test": "incident has s22_note (kit setup), not flagged",
           "status": "pass"
         }
       ]
@@ -248,7 +248,7 @@
           "status": "pass"
         },
         {
-          "test": "the flag published again after 30 s and 11 attempts: 201",
+          "test": "the flag published again after 21 s and 8 attempts: 201",
           "status": "pass"
         },
         {

@@ -142,14 +142,14 @@
       },
       "compat": "needs_backfill",
       "number_format": null,
-      "published_at": "2026-11-28T11:16:54.933235Z",
+      "published_at": "2026-11-28T12:02:05.323474Z",
       "backfill": {
         "failed": 1,
-        "finished_at": "2026-11-28T11:17:34.257429Z",
+        "finished_at": "2026-11-28T12:02:43.843956Z",
         "remaining": 1,
         "rewritten": 2049,
         "skipped": 0,
-        "started_at": "2026-11-28T11:16:55.285184Z",
+        "started_at": "2026-11-28T12:02:05.539691Z",
         "state": "failed_records",
         "target_version": 5
       }

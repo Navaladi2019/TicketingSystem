@@ -1,1 +1,1 @@
-s29: PASS at 31b6629a3884f68e8d6f199cab7aaea2a6fb70b0; evidence in docs/acceptance/S29/evidence (2026-11-28T11:26:08Z)
+s29: PASS at a0a3a762c76d00bd938cc444f60181ca55451a17; evidence in docs/acceptance/S29/evidence (2026-11-28T12:06:52Z)

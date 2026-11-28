@@ -23,7 +23,7 @@
       "path": "/api/v1/entity-types",
       "headers": {
         "Content-Type": "application/json",
-        "Idempotency-Key": "s22-setup-48649c78-8b93-49a6-abd0-c8027c7a1ff2"
+        "Idempotency-Key": "s22-setup-90140875-93d4-49ca-a520-032f286c48af"
       },
       "body": {
         "key": "s22_asset",
@@ -135,7 +135,7 @@
         },
         "compat": "initial",
         "number_format": null,
-        "published_at": "2026-11-28T11:14:07.231634Z"
+        "published_at": "2026-11-28T11:59:27.439747Z"
       }
     }
   },
@@ -167,7 +167,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a221dc-40ac-70bd-b2fa-dfaa0dc48742"
+                            "01a22205-ba87-762a-9720-3dc34048c77b"
                           ]
                         }
                       }
@@ -189,7 +189,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a221dc-40ac-70f1-b014-849fc5055ca3"
+                            "01a22205-ba87-7657-aae5-758e793a0a4b"
                           ]
                         }
                       }
@@ -261,7 +261,7 @@
         },
         "masks": [],
         "published_by": null,
-        "published_at": "2026-11-28T11:13:34.298602Z"
+        "published_at": "2026-11-28T11:58:52.582971Z"
       }
     }
   },
@@ -272,7 +272,7 @@
       "headers": {
         "If-Match": "W/\"0\"",
         "Content-Type": "application/json",
-        "Idempotency-Key": "s22-setup-56f4b3d6-98d2-4e96-af2c-0cc27c3fb809"
+        "Idempotency-Key": "s22-setup-038427fa-734f-4605-9664-438ef73460db"
       },
       "body": {
         "rules": {
@@ -292,7 +292,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a221dc-40ac-70bd-b2fa-dfaa0dc48742"
+                            "01a22205-ba87-762a-9720-3dc34048c77b"
                           ]
                         }
                       }
@@ -327,7 +327,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a221dc-40ac-70bd-b2fa-dfaa0dc48742"
+                            "01a22205-ba87-762a-9720-3dc34048c77b"
                           ]
                         }
                       }
@@ -339,8 +339,8 @@
           ]
         },
         "masks": [],
-        "published_by": "01a221dc-40a4-77ae-8d04-68186a731a6a",
-        "published_at": "2026-11-28T11:14:07.260151Z"
+        "published_by": "01a22205-ba82-7447-8023-50bac68e1cbe",
+        "published_at": "2026-11-28T11:59:27.471805Z"
       }
     }
   },
@@ -477,7 +477,7 @@
         },
         "compat": "compatible",
         "number_format": null,
-        "published_at": "2026-11-28T11:14:03.967643Z"
+        "published_at": "2026-11-28T11:59:23.36998Z"
       }
     }
   },
@@ -487,7 +487,7 @@
       "path": "/api/v1/entity-types/incident/versions",
       "headers": {
         "Content-Type": "application/json",
-        "Idempotency-Key": "s22-setup-384e7deb-8c43-4675-b955-8540ae049b4f"
+        "Idempotency-Key": "s22-setup-e4e201ed-815c-4847-b588-0e2e50df4678"
       },
       "body": {
         "definition": {
@@ -734,7 +734,7 @@
         },
         "compat": "compatible",
         "number_format": null,
-        "published_at": "2026-11-28T11:14:07.288917Z"
+        "published_at": "2026-11-28T11:59:27.503993Z"
       }
     }
   }

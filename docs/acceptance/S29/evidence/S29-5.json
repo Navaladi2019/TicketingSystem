@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s29-1ca73f95-unique-default",
+      "Idempotency-Key": "s29-3f009b24-unique-default",
       "Content-Type": "application/json"
     },
     "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"x-nava-filterable\":true,\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"s29_level\":{\"type\":\"integer\",\"title\":\"Level\",\"enum\":[1,2,3,4],\"x-nava-filterable\":true},\"s29_tier\":{\"type\":\"string\",\"title\":\"Tier\",\"maxLength\":32,\"x-nava-unique\":true,\"default\":\"standard\"},\"s22_note\":{\"type\":\"string\",\"title\":\"S22 note\",\"maxLength\":64}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
@@ -22,7 +22,7 @@
       "status": 422,
       "code": "invalid_definition",
       "detail": "The entity type is not accepted. See errors for the failing fields.",
-      "instance": "urn:nava:request:3c0d562e6141699bfee3fe7474b49428",
+      "instance": "urn:nava:request:aad2a4b26f82188c6c5432de96c3359d",
       "errors": [
         {
           "pointer": "/definition/schema/properties/s29_tier/default",

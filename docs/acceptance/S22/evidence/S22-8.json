@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-34c8e261-flag",
+      "Idempotency-Key": "s22-0857aec9-flag",
       "Content-Type": "application/json"
     },
     "body": "{\"definition\":{\"schema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"name\",\"state\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Name\",\"minLength\":1,\"maxLength\":160},\"state\":{\"type\":\"string\",\"enum\":[\"new\",\"closed\"],\"default\":\"new\"},\"s22_code\":{\"type\":\"string\",\"title\":\"Code\",\"maxLength\":16,\"x-nava-filterable\":true}}},\"fixed_columns\":{\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"closed\"}]}}}"
@@ -72,7 +72,7 @@
       },
       "compat": "compatible",
       "number_format": null,
-      "published_at": "2026-11-28T11:14:18.916458Z"
+      "published_at": "2026-11-28T11:59:41.170438Z"
     }
   },
   "tests": [

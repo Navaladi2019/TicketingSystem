@@ -20,7 +20,7 @@
       "status": 400,
       "code": "field_not_filterable",
       "detail": "The list filters on a data field that is not flagged x-nava-filterable in this entity type. Nothing was read. See errors for the field.",
-      "instance": "urn:nava:request:e18722302d17e36807290372cc1d66ad",
+      "instance": "urn:nava:request:7ebd17c56940dc1bda6d83326f496804",
       "errors": [
         {
           "pointer": "/filter/s22_note",
@@ -30,10 +30,6 @@
     }
   },
   "tests": [
-    {
-      "test": "incident has s22_note (kit setup), not flagged",
-      "status": "pass"
-    },
     {
       "test": "HTTP 400",
       "status": "pass"
@@ -48,6 +44,10 @@
     },
     {
       "test": "errors[] points at /filter/s22_note",
+      "status": "pass"
+    },
+    {
+      "test": "incident has s22_note (kit setup), not flagged",
       "status": "pass"
     }
   ]

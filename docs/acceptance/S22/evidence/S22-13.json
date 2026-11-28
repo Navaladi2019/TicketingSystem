@@ -70,7 +70,7 @@
       },
       "compat": "compatible",
       "number_format": null,
-      "published_at": "2026-11-28T11:15:13.953853Z"
+      "published_at": "2026-11-28T12:00:27.203914Z"
     }
   },
   "tests": [
@@ -79,7 +79,7 @@
       "status": "pass"
     },
     {
-      "test": "the flag published again after 30 s and 11 attempts: 201",
+      "test": "the flag published again after 21 s and 8 attempts: 201",
       "status": "pass"
     },
     {

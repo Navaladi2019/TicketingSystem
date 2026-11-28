@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18082",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-34c8e261-limit-10",
+      "Idempotency-Key": "s22-0857aec9-limit-10",
       "Content-Type": "application/json"
     },
     "body": "{\n  \"filterable_fields_per_type\": 10,\n  \"reason\": \"S22 acceptance: measured cost check (TICK-754)\"\n}"

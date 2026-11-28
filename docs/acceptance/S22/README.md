@@ -2,7 +2,7 @@
 
 Kit task TICK-754 (PLAN-007 P7-14), which also carries the S29 kit (`docs/acceptance/S29/`, formerly TICK-928). Design: ADR-006 D6 (scan removal), D8 (busy), D11 (removal), D12 (quota). Story branch: `TICK-740/search-finish`, shared with S29.
 
-**Status (2026-11-28): S22 PASSES on a fresh stack: all 4 criteria. Fresh stack `nava-s22s29`, 2026-11-28 11:13Z to 11:26Z, from `31b6629a` (PR #918), `run-s22-s29.sh`. Bruno S22: 24 requests, 76/76 tests. `verify.sql`: every check `ok`. S22.6 now filters on `s22_note`, a field the kit adds and never flags. The old field, `short_description`, was already flagged on the shared CI stack, so that run got 200 (run 46107246042). Evidence: `evidence/`.**
+**Status (2026-11-28): S22 PASSES on a fresh stack: all 4 criteria. Fresh stack `nava-s22s29`, 2026-11-28 11:57Z to 12:07Z, from `a0a3a762` (PR #918), `run-s22-s29.sh`. Bruno S22: 24 requests, 76/76 tests. `verify.sql`: every check `ok`. S22.6 now filters on `s22_note`, a field the kit adds and never flags. The old field, `short_description`, was already flagged on the shared CI stack, so that run got 200 (run 46107246042). Evidence: `evidence/`.**
 
 ## What you can now do
 

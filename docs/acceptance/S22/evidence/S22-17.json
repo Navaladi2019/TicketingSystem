@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18082",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-34c8e261-limit-admin",
+      "Idempotency-Key": "s22-0857aec9-limit-admin",
       "Content-Type": "application/json"
     },
     "body": "{\n  \"filterable_fields_per_type\": 10,\n  \"reason\": \"S22 kit: a tenant admin tries\"\n}"
@@ -22,7 +22,7 @@
       "status": 403,
       "code": "forbidden",
       "detail": "The token does not allow this operation.",
-      "instance": "urn:nava:request:1f2348935568c9ebdf07018d02d4d72e"
+      "instance": "urn:nava:request:c3b4a07215d78f5cb5bb681b0d6ad15a"
     }
   },
   "tests": [

@@ -1,6 +1,6 @@
 {
   "requests": 24,
-  "tests": 74,
+  "tests": 75,
   "failed": 0,
   "results": [
     {
@@ -226,7 +226,7 @@
           "status": "pass"
         },
         {
-          "test": "the job ended failed_records after 47 s and 24 samples",
+          "test": "the job ended failed_records after 43 s and 22 samples",
           "status": "pass"
         },
         {
@@ -438,7 +438,11 @@
           "status": "pass"
         },
         {
-          "test": "no items, total 0",
+          "test": "exactly tenant B's own priority 3 incidents (0)",
+          "status": "pass"
+        },
+        {
+          "test": "none of tenant A's ids",
           "status": "pass"
         }
       ]

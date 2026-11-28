@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-34c8e261-reflag-busy",
+      "Idempotency-Key": "s22-0857aec9-reflag-busy",
       "Content-Type": "application/json"
     },
     "body": "{\"definition\":{\"schema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"name\",\"state\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Name\",\"minLength\":1,\"maxLength\":160},\"state\":{\"type\":\"string\",\"enum\":[\"new\",\"closed\"],\"default\":\"new\"},\"s22_code\":{\"type\":\"string\",\"title\":\"Code\",\"maxLength\":16,\"x-nava-filterable\":true}}},\"fixed_columns\":{\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"closed\"}]}}}"
@@ -22,7 +22,7 @@
       "status": 409,
       "code": "field_index_busy",
       "detail": "A property the new version marks x-nava-filterable has an index that is being removed. Retry when the removal has finished. Nothing was written.",
-      "instance": "urn:nava:request:96d43661417da1c48826609158ea4c2e",
+      "instance": "urn:nava:request:b37858b07c1fb81143eae06c37078d1a",
       "errors": [
         {
           "pointer": "/definition/schema/properties/s22_code",

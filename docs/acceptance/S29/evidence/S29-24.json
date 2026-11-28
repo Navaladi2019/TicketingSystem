@@ -28,7 +28,11 @@
       "status": "pass"
     },
     {
-      "test": "no items, total 0",
+      "test": "exactly tenant B's own priority 3 incidents (0)",
+      "status": "pass"
+    },
+    {
+      "test": "none of tenant A's ids",
       "status": "pass"
     }
   ]
