@@ -4,8 +4,12 @@
 //     As admin@tenant-a, on a fresh stack: creates the ticket type `s22_asset`
 //     (prefix SAST) with `name` and an optional `s22_code` (string), not
 //     flagged, and an access policy letting tenant A's admins group read and
-//     write it. seed.sql then writes 20,000 records at that version. Writes
-//     <evidence-dir>/setup.json (requests and answers, no credentials).
+//     write it. seed.sql then writes 20,000 records at that version. Then it
+//     publishes the next version of the seed type `incident` with one more
+//     optional field, `s22_note` (string), never flagged: S22.6 filters on it,
+//     so its 400 does not depend on what other suites flagged on a shared
+//     stack (the CI run 46107246042 found short_description already flagged).
+//     Writes <evidence-dir>/setup.json (requests and answers, no credentials).
 //
 // Ports come from the same variables as the compose file and api-test.sh.
 // Only the dev-only seed users of docs/acceptance/guide/bruno/environments/local.bru.
@@ -86,6 +90,17 @@ async function setup() {
     { rules: { format: 2, conditions: [], policies: [{ name: 's22_admins', ops: ['read', 'write'], when: { all: [{ any: [{ member_of: { groups } }] }] } }] }, masks: [] },
     { 'If-Match': 'W/"0"' });
   must(put.status === 200, `publish the s22_asset access policy: HTTP ${put.status}`);
+
+  // S22.6's field: an optional incident field the kit adds and nobody flags.
+  const cur = await call(tok, 'GET', '/api/v1/entity-types/incident');
+  must(cur.status === 200, `read the incident type: HTTP ${cur.status}`);
+  const schema = cur.json.schema;
+  must(!schema.properties.s22_note, 'incident already has s22_note: the kit needs a stack S22 has not run on');
+  schema.properties.s22_note = { type: 'string', title: 'S22 note', maxLength: 64 };
+  const pub = await call(tok, 'POST', '/api/v1/entity-types/incident/versions',
+    { definition: { schema, fixed_columns: cur.json.fixed_columns, states: cur.json.states } });
+  must(pub.status === 201, `publish incident with s22_note: HTTP ${pub.status}`);
+  must(!(pub.json.schema.properties.s22_note || {})['x-nava-filterable'], 'incident s22_note came back flagged');
 }
 
 if (mode === 'setup') {

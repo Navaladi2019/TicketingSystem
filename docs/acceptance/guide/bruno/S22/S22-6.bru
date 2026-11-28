@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{core_url}}/api/v1/records/incident?filter[short_description]=anything
+  url: {{core_url}}/api/v1/records/incident?filter[s22_note]=anything
   body: none
   auth: none
 }
@@ -14,12 +14,27 @@ headers {
   Authorization: Bearer {{admin_a_token}}
 }
 
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  // The field must be in the seed type and unflagged at the moment of the filter, read from the API, not assumed.
+  const r = await T.type('admin_a_token', 'incident');
+  const p = (r.data && r.data.schema && r.data.schema.properties) || {};
+  bru.setVar('s22_note_field', JSON.stringify({ status: r.status, field: p.s22_note || null }));
+}
+
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
+  const f = JSON.parse(bru.getVar('s22_note_field'));
+  test('incident has s22_note (kit setup), not flagged', () => {
+    expect(f.status).to.eql(200);
+    expect(f.field).to.not.eql(null);
+    expect(f.field['x-nava-filterable']).to.not.eql(true);
+  });
   N.problem('field_not_filterable', 400);
-  N.fieldError('/filter/short_description');
+  N.fieldError('/filter/s22_note');
 }
 
 docs {
-  `short_description` is not flagged in the seed template. Before S22 a seed type still scanned the JSON for it; with the scan retired it answers 400 at once.
+  `s22_note` is an optional incident field kit.mjs setup publishes and nothing flags. It is the kit's own, so the answer does not depend on what earlier suites flagged on a shared stack (CI run 46107246042: `short_description` was already flagged there, and the old S22.6 got 200). Before S22 a seed type still scanned the JSON for an unflagged field; with the scan retired it answers 400 at once.
 }

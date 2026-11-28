@@ -5,16 +5,30 @@
 //
 //   node extras.mjs <evidence-dir>
 //
-//   E1 CI-4, the wait bound: 4 live writers edit seeded incidents for 15 s
-//      with no job (the baseline), then while a job adds `s29_x1` to all
-//      ~2,050, each writer paced to about 3.5 writes a second (28 requests a
-//      second in all, under the 50/s tenant rate limit). Each write: read, then PATCH description with If-Match; a 412
-//      (the job rewrote the record in between: a real interleave) re-reads
-//      and retries. Asserted: no write waits longer than the baseline's
-//      slowest plus BOUND_MS (one record's rewrite is ~7 ms, ADR-009 CI-12;
-//      the bound leaves room for client and host noise, never for a page);
-//      every 412 retried to success; no lost update (each record holds the
-//      writer's last description and the job's value).
+//   E1 CI-4, the wait bound, measured on the server (Technical Lead,
+//      2026-11-28 09:26Z): 4 live writers edit seeded incidents for 15 s with
+//      no job (the baseline), then while a job adds `s29_x1` to all ~2,050,
+//      each writer paced to about 3.5 writes a second (28 requests a second
+//      in all, under the 50/s tenant rate limit). Each write: read, then
+//      PATCH description with If-Match; a 412 (the job rewrote the record in
+//      between: a real interleave) re-reads and retries. For the whole job a
+//      sampler inside PostgreSQL (one psql session, a loop that commits after
+//      every sample, so the backfill's snapshot barrier never waits on it)
+//      reads pg_locks and pg_stat_activity: every ungranted lock of a
+//      live-write backend (role nava_app), its waitstart and
+//      pg_blocking_pids, and every open transaction of a backfill backend
+//      (role nava_worker) with its xact_start. Asserted, the pass rule as
+//      ruled:
+//        - no live-write backend is ever blocked by more than one backfill
+//          backend at once;
+//        - no single wait on a backfill backend lasts longer than the p99
+//          duration of one backfill transaction measured in the same run
+//          (both come from the same samples, so both are lower bounds at
+//          the same resolution; the sampling interval is reported);
+//        - every 412 retried to success; no lost update (each record holds
+//          the writer's last description and the job's value).
+//      Client PATCH latencies (baseline and during the job) are `info` lines
+//      only; the earlier +250 ms client bound is dropped.
 //   E2 CI-11, a real worker kill: a job adds `s29_x2`; once it has rewritten
 //      at least 300 records, `docker compose kill nava-worker` mid-page, 3 s,
 //      `docker compose start nava-worker`. Asserted: the job ends, and every
@@ -25,7 +39,11 @@
 //      override; tenant A (s29_x3 on incident) and tenant B (s29_x3 on its
 //      incident, 2,000 seeded records) publish a default 1 s apart. Asserted:
 //      the two jobs' [started_at, finished_at] do not overlap. The worker is
-//      restarted without the override after.
+//      restarted without the override after. Known to fail until TICK-1208
+//      (cap running jobs across the pool, ADR-009 D7) merges: while
+//      E3_PENDING names it, an E3 failure is written `FAIL (pending
+//      TICK-1208)` and does not fail the run; an E3 pass while it is still
+//      set prints a reminder to clear it.
 //   E4 R9 watch item: the history length of every schema.backfill workflow in
 //      the run (Temporal visibility through the UI API), the largest against
 //      Temporal's 51,200-event limit. Recorded; a history over half the limit
@@ -35,7 +53,7 @@
 // verify.sql). No credentials in either. Ports from the compose variables.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 
 const dir = process.argv[2];
@@ -44,11 +62,14 @@ const KC = `http://127.0.0.1:${process.env.KEYCLOAK_PORT || 18081}`;
 const TUI = `http://127.0.0.1:${process.env.ACCEPT_TEMPORAL_UI_PORT || 18233}`;
 const A = '00000000-0000-4000-8000-0000000000a1';
 const B = '00000000-0000-4000-8000-0000000000b1';
-const BOUND_MS = 250;
+// E3 stays failing until this task merges (Technical Lead, 2026-11-28 09:26Z).
+// Clear it in the change that re-runs E3 after TICK-1208.
+const E3_PENDING = 'TICK-1208';
 const HISTORY_LIMIT = 51200;
 const out = { started_at: new Date().toISOString() };
 const checks = [];
-const check = (name, value, ok) => { checks.push(`check|${name}|${value}|${ok ? 'ok' : 'FAIL'}`); console.log(checks[checks.length - 1]); };
+const check = (name, value, ok, pending) => { checks.push(`check|${name}|${value}|${ok ? 'ok' : pending ? `FAIL (pending ${pending})` : 'FAIL'}`); console.log(checks[checks.length - 1]); };
+const info = (name, value) => { checks.push(`info|${name}|${value}`); console.log(checks[checks.length - 1]); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const md5uuid = (s) => { const h = createHash('md5').update(s).digest('hex'); return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`; };
 const compose = (...args) => execFileSync('docker', ['compose', ...(process.env.COMPOSE_FILE_ARGS ? process.env.COMPOSE_FILE_ARGS.split(' ') : []), ...args], { stdio: ['ignore', 'pipe', 'inherit'] }).toString();
@@ -106,6 +127,76 @@ const perRecordCounts = () => Object.fromEntries(psql(`SELECT r.id || '|' || (SE
   FROM records r JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
  WHERE r.tenant_id = '${A}' AND d.key = 'incident';`).split('\n').filter(Boolean).map((l) => { const [id, n] = l.split('|'); return [id, Number(n)]; }));
 
+// The E1 sampler: one psql session until the stop table has a row. Every
+// iteration is its own short transaction (COMMIT in the loop), so it is never
+// in the set the backfill's snapshot barrier waits on. Prints one JSON line.
+const SAMPLER_SQL = `SET synchronous_commit = off;
+CREATE TEMP TABLE e1_wait (it bigint, ts timestamptz, pid int, waitstart timestamptz, blockers int, bf_blockers int, locktype text);
+CREATE TEMP TABLE e1_tx (it bigint, ts timestamptz, pid int, xact_start timestamptz);
+CREATE TEMP TABLE e1_run (n bigint, t0 timestamptz, t1 timestamptz);
+DO $sampler$
+DECLARE n bigint := 0; t0 timestamptz := clock_timestamp();
+BEGIN
+  LOOP
+    EXIT WHEN EXISTS (SELECT 1 FROM s29x_e1_stop) OR clock_timestamp() > t0 + interval '20 minutes';
+    n := n + 1;
+    INSERT INTO e1_wait
+    SELECT n, clock_timestamp(), l.pid, l.waitstart, cardinality(bp.b),
+           (SELECT count(*) FROM pg_stat_activity w WHERE w.pid = ANY (bp.b) AND w.usename = 'nava_worker'), l.locktype
+      FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+     CROSS JOIN LATERAL (SELECT pg_blocking_pids(l.pid) AS b) bp
+     WHERE NOT l.granted AND a.usename = 'nava_app' AND a.datname = 'nava';
+    INSERT INTO e1_tx
+    SELECT n, clock_timestamp(), pid, xact_start FROM pg_stat_activity
+     WHERE usename = 'nava_worker' AND datname = 'nava' AND xact_start IS NOT NULL AND backend_type = 'client backend';
+    COMMIT;
+    PERFORM pg_sleep(0.0005);
+  END LOOP;
+  INSERT INTO e1_run VALUES (n, t0, clock_timestamp());
+  COMMIT;
+END $sampler$;
+WITH w AS (SELECT pid, waitstart, max(bf_blockers) AS bf, extract(epoch FROM max(ts) - waitstart) * 1000 AS ms
+             FROM e1_wait WHERE waitstart IS NOT NULL GROUP BY pid, waitstart),
+     x AS (SELECT pid, xact_start, extract(epoch FROM max(ts) - xact_start) * 1000 AS ms
+             FROM e1_tx GROUP BY pid, xact_start)
+SELECT json_build_object(
+  'samples', r.n,
+  'seconds', round(extract(epoch FROM r.t1 - r.t0)::numeric, 1),
+  'avg_interval_ms', round((extract(epoch FROM r.t1 - r.t0) * 1000 / greatest(r.n, 1))::numeric, 3),
+  'max_backfill_blockers_at_once', coalesce((SELECT max(bf_blockers) FROM e1_wait), 0),
+  'ungranted_lock_samples', (SELECT count(*) FROM e1_wait),
+  'waits_on_backfill', (SELECT count(*) FROM w WHERE bf > 0),
+  'waits_on_other', (SELECT count(*) FROM w WHERE bf = 0),
+  'max_wait_on_backfill_ms', (SELECT round(max(ms)::numeric, 3) FROM w WHERE bf > 0),
+  'longest_waits_on_backfill_ms', (SELECT coalesce(json_agg(round(ms::numeric, 3) ORDER BY ms DESC), '[]') FROM (SELECT ms FROM w WHERE bf > 0 ORDER BY ms DESC LIMIT 20) t),
+  'lock_types', (SELECT coalesce(json_object_agg(locktype, c), '{}') FROM (SELECT locktype, count(*) AS c FROM e1_wait GROUP BY locktype) t),
+  'backfill_tx', (SELECT count(*) FROM x),
+  'backfill_tx_p50_ms', (SELECT round((percentile_cont(0.5) WITHIN GROUP (ORDER BY ms))::numeric, 3) FROM x),
+  'backfill_tx_p99_ms', (SELECT round((percentile_cont(0.99) WITHIN GROUP (ORDER BY ms))::numeric, 3) FROM x),
+  'backfill_tx_max_ms', (SELECT round(max(ms)::numeric, 3) FROM x))
+FROM e1_run r;
+`;
+function startSampler() {
+  psql('DROP TABLE IF EXISTS s29x_e1_stop; CREATE TABLE s29x_e1_stop (at timestamptz); SELECT 1;');
+  const p = spawn('docker', ['compose', 'exec', '-T', 'postgres', 'sh', '-c',
+    'PGPASSWORD=$(cat /run/pg_superuser_password) psql -X -At -q -v ON_ERROR_STOP=1 -U pgadmin -d nava'], { stdio: ['pipe', 'pipe', 'inherit'] });
+  let stdout = '';
+  p.stdout.on('data', (d) => { stdout += d; });
+  const done = new Promise((resolve, reject) => p.on('close', (code) => {
+    if (code !== 0) return reject(new Error(`E1 sampler: psql exit ${code}`));
+    const line = stdout.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+    if (!line) return reject(new Error('E1 sampler: no summary line'));
+    resolve(JSON.parse(line));
+  }));
+  p.stdin.end(SAMPLER_SQL);
+  return {
+    stop: async () => {
+      psql('INSERT INTO s29x_e1_stop VALUES (now()); SELECT 1;');
+      try { return await done; } finally { psql('DROP TABLE IF EXISTS s29x_e1_stop; SELECT 1;'); }
+    },
+  };
+}
+
 // ---------------------------------------------------------------- E1 CI-4
 async function e1() {
   await publish(ADMIN_A, (s) => { s.properties.s29_x1 = { type: 'string', maxLength: 16 }; s.properties.s29_x2 = { type: 'string', maxLength: 16 }; s.properties.s29_x3 = { type: 'string', maxLength: 16 }; }, 'add s29_x1..x3');
@@ -140,9 +231,16 @@ async function e1() {
   const ws = [0, 1, 2, 3].map(writer);
   await sleep(15000);
   phase = 'during';
-  const v = await publish(ADMIN_A, (s) => { s.properties.s29_x1.default = 'a'; }, 'default s29_x1');
-  const { job, samples } = await waitJob(ADMIN_A, v);
-  stop = true;
+  const sampler = startSampler();
+  await sleep(500);
+  let job, samples, server;
+  try {
+    const v = await publish(ADMIN_A, (s) => { s.properties.s29_x1.default = 'a'; }, 'default s29_x1');
+    ({ job, samples } = await waitJob(ADMIN_A, v));
+  } finally {
+    server = await sampler.stop().catch((e) => ({ error: e.message }));
+    stop = true;
+  }
   await Promise.all(ws);
   const lost = [];
   for (const [id, desc] of Object.entries(last)) {
@@ -151,12 +249,23 @@ async function e1() {
   }
   const stored = Number(psql(`SELECT count(*) FROM records WHERE tenant_id = '${A}' AND id = ANY (ARRAY[${Object.keys(last).map((i) => `'${i}'::uuid`).join(',')}]) AND data->>'s29_x1' = 'a';`));
   const bmax = Math.max(...stats.baseline), dmax = Math.max(...stats.during);
-  out.e1 = { job, samples, writes: { baseline: stats.baseline.length, during: stats.during.length },
-    baseline_ms: { p50: pct(stats.baseline, 50), p99: pct(stats.baseline, 99), max: bmax },
-    during_ms: { p50: pct(stats.during, 50), p99: pct(stats.during, 99), max: dmax },
+  const sv = server || { error: 'no sampler result' };
+  out.e1 = { job, samples, server: sv, writes: { baseline: stats.baseline.length, during: stats.during.length },
+    client_info_only: { baseline_ms: { p50: pct(stats.baseline, 50), p99: pct(stats.baseline, 99), max: bmax },
+      during_ms: { p50: pct(stats.during, 50), p99: pct(stats.during, 99), max: dmax } },
     s412: stats.s412, retried_ok: stats.retried_ok, failed: stats.failed, lost };
   check('E1 CI-4 writes during the job (4 writers)', stats.during.length, stats.during.length >= 40);
-  check(`E1 CI-4 slowest live write during the job <= baseline slowest + ${BOUND_MS} ms`, `${dmax} ms vs ${bmax} ms`, dmax <= bmax + BOUND_MS);
+  check('E1 CI-4 server sampler covered the job',
+    sv.error || `${sv.samples} samples over ${sv.seconds} s (every ${sv.avg_interval_ms} ms on average); ${sv.backfill_tx} backfill transactions seen`,
+    !sv.error && sv.samples >= 1000 && sv.backfill_tx >= 100);
+  check('E1 CI-4 no live write blocked by more than one backfill backend at once',
+    sv.error || `max ${sv.max_backfill_blockers_at_once} at once; ${sv.waits_on_backfill} waits on a backfill backend, ${sv.waits_on_other} on anything else`,
+    !sv.error && sv.max_backfill_blockers_at_once <= 1);
+  check('E1 CI-4 longest wait on a backfill backend <= p99 of one backfill transaction, same run',
+    sv.error || `${sv.max_wait_on_backfill_ms ?? 0} ms vs p99 ${sv.backfill_tx_p99_ms} ms (p50 ${sv.backfill_tx_p50_ms}, max ${sv.backfill_tx_max_ms})`,
+    !sv.error && sv.backfill_tx_p99_ms != null && Number(sv.max_wait_on_backfill_ms ?? 0) <= Number(sv.backfill_tx_p99_ms));
+  info('E1 CI-4 client PATCH latency, no job (information only)', `p50 ${pct(stats.baseline, 50)} / p99 ${pct(stats.baseline, 99)} / max ${bmax} ms`);
+  info('E1 CI-4 client PATCH latency, during the job (information only)', `p50 ${pct(stats.during, 50)} / p99 ${pct(stats.during, 99)} / max ${dmax} ms`);
   check('E1 CI-4 every 412 retried to success, no write failed', `${stats.s412} 412s, ${stats.retried_ok} retried, ${stats.failed.length} failed`, stats.failed.length === 0 && stats.retried_ok <= stats.s412);
   check('E1 CI-4 no lost update (last description and the job value both stored)', `${lost.length} lost of ${Object.keys(last).length}; ${stored} stored s29_x1`, lost.length === 0 && stored === Object.keys(last).length);
   check('E1 CI-4 the job ended', job.state, ['done', 'failed_records'].includes(job.state));
@@ -215,7 +324,8 @@ SELECT 1;`);
   out.e3 = { worker_env: env, a: ja, b: jb, overlap_ms: overlap, samples_a: ra.samples, samples_b: rb.samples };
   check('E3 the worker ran with the override', env, env === 'NAVA_SCHEMA_BACKFILL_CONCURRENCY=1');
   check('E3 both tenants\' jobs ended', `A ${ja.state}, B ${jb.state}`, ['done', 'failed_records'].includes(ja.state) && jb.state === 'done');
-  check('E3 concurrency 1: the two tenants\' jobs ran one after the other, not in parallel', `A ${ja.started_at}..${ja.finished_at}, B ${jb.started_at}..${jb.finished_at}, overlap ${overlap} ms`, overlap === 0);
+  check('E3 concurrency 1: the two tenants\' jobs ran one after the other, not in parallel', `A ${ja.started_at}..${ja.finished_at}, B ${jb.started_at}..${jb.finished_at}, overlap ${overlap} ms`, overlap === 0, E3_PENDING);
+  if (overlap === 0 && E3_PENDING) console.log(`s29 extras: E3 passes while E3_PENDING is still ${E3_PENDING}: clear it in extras.mjs`);
 }
 
 // ---------------------------------------------------------------- E4 R9
